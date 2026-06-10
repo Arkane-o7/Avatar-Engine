@@ -1,0 +1,12 @@
+tools:
+  blender: blender
+  rhubarb: rhubarb
+  ffmpeg: ffmpeg
+
+render:
+  fps: 30
+  resolution: [1920, 1080]
+  engine: BLENDER_EEVEE_NEXT
+  placeholder_frame_count: 90
+
+test_mode: false
