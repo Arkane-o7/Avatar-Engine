@@ -104,6 +104,14 @@ Create or copy a Blender scene to:
 blender/avatar_template.blend
 ```
 
+To generate a simple local placeholder template, run Blender directly:
+
+```bash
+/Applications/Blender.app/Contents/MacOS/Blender -b -P blender/create_basic_template.py
+```
+
+This creates a basic desk scene with `CHAR_Avatar`, `ARM_Avatar`, `FACE_Surface`, the required cameras, desk, and lights. It is intentionally primitive, but it is enough for the normal Blender stage to render while you replace the assets incrementally.
+
 For the MVP, the scene should include:
 
 - Cameras named `CAM_Front_Medium`, `CAM_Front_Close`, and `CAM_Side_ThreeQuarter`.

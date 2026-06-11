@@ -1,7 +1,7 @@
 tools:
-  blender: blender
-  rhubarb: rhubarb
-  ffmpeg: ffmpeg
+  blender: "/Applications/Blender.app/Contents/MacOS/Blender"
+  rhubarb: "/Users/abhilaksh/Projects/3D Model/Rhubarb-Lip-Sync-1.14.0-macOS/rhubarb"
+  ffmpeg: "/opt/homebrew/bin/ffmpeg"
 
 render:
   fps: 30
