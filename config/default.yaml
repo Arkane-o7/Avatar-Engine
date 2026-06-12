@@ -3,6 +3,13 @@ tools:
   rhubarb: "/Users/abhilaksh/Projects/3D Model/Rhubarb-Lip-Sync-1.14.0-macOS/rhubarb"
   ffmpeg: "/opt/homebrew/bin/ffmpeg"
 
+tts:
+  engine: kokoro
+  voice: af_heart
+  speed: 1.0
+  sample_rate: 24000
+  lang_code: a
+
 render:
   fps: 30
   resolution: [1920, 1080]

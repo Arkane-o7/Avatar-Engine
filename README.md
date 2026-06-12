@@ -7,7 +7,7 @@ This is intentionally not a photorealistic MetaHuman pipeline and does not use c
 ## Current Status
 
 - The local pipeline runs end to end from a job JSON to an MP4.
-- Rhubarb, Blender, and FFmpeg can be configured through `config/default.yaml`.
+- Rhubarb, Blender, FFmpeg, and local Kokoro TTS defaults can be configured through `config/default.yaml`.
 - `blender/avatar_template.blend` is the production scene. Runtime scripts load it only and must not overwrite it.
 - 2D face mode uses `FACE_Backdrop` and `FACE_Surface`; Rhubarb cues swap mouth PNG textures on `FACE_Surface`.
 - Visual polish is still intentionally lightweight. The current focus is reliable local automation and safe iteration.
@@ -29,7 +29,7 @@ assets/output/<job_id>.mp4
 Pipeline:
 
 1. Load and validate the job JSON.
-2. Generate local TTS audio, or a placeholder WAV in test mode.
+2. Generate local Kokoro TTS audio when available, or a placeholder WAV when Kokoro is missing or test mode is enabled.
 3. Generate Rhubarb lip-sync cues, or fake Rhubarb-style cues when Rhubarb is missing.
 4. Run Blender in background mode when Blender and `blender/avatar_template.blend` are available.
 5. Animate mouth cues, expressions, gestures, and camera cuts.
@@ -48,9 +48,9 @@ Required for the full normal pipeline:
 
 Optional:
 
-- Kokoro or another local TTS engine
+- Kokoro local TTS
 
-The MVP can run in test mode without Kokoro, Rhubarb, Blender, or FFmpeg. Missing tools print clear warnings. If Blender is missing, the runner creates placeholder PNG frames. If FFmpeg is missing, MP4 export is skipped in test mode.
+The MVP can run in test mode without Kokoro, Rhubarb, Blender, or FFmpeg. Missing tools print clear warnings. If Kokoro is missing or installed incorrectly, the runner writes the same placeholder WAV fallback. If Blender is missing, the runner creates placeholder PNG frames. If FFmpeg is missing, MP4 export is skipped in test mode.
 
 ## Install
 
@@ -72,9 +72,18 @@ tools:
   blender: blender
   rhubarb: rhubarb
   ffmpeg: ffmpeg
+
+tts:
+  engine: kokoro
+  voice: af_heart
+  speed: 1.0
+  sample_rate: 24000
+  lang_code: a
 ```
 
 Each value can be either a command available on `PATH` or an absolute path to the binary.
+
+`tts.voice`, `tts.speed`, `tts.sample_rate`, and `tts.lang_code` are defaults. A job can override them in its `voice` block with `voice_id` or `voice`, `speed`, `sample_rate`, and `engine`.
 
 ## Health Check
 
@@ -84,7 +93,40 @@ Run the doctor before debugging a job:
 python3 scripts/doctor.py
 ```
 
-It checks Python, config loading, Blender, FFmpeg, Rhubarb, the production Blender template, sample job loading, asset folders, and required mouth textures.
+It checks Python, config loading, Blender, FFmpeg, Rhubarb, Kokoro availability, the production Blender template, sample job loading, asset folders, and required mouth textures. Kokoro is reported as `OK` when importable and `WARN` when the placeholder fallback will be used.
+
+## Kokoro TTS
+
+Kokoro is optional but preferred for normal local speech generation. Install and configure Kokoro in the same Python environment used to run `scripts/run_job.py`.
+
+For the common Python package setup:
+
+```bash
+source .venv/bin/activate
+pip install kokoro
+```
+
+If Kokoro needs additional local model or phonemizer setup on your machine, follow the Kokoro package instructions, then rerun:
+
+```bash
+python3 scripts/doctor.py
+```
+
+Audio-only smoke test:
+
+```bash
+source .venv/bin/activate
+python scripts/generate_tts.py jobs/sample_job.json --config config/default.yaml
+afplay assets/temp/sample_desk_avatar/audio.wav
+```
+
+The standalone command writes to `assets/temp/<job_id>/audio.wav` by default. To choose a path:
+
+```bash
+python scripts/generate_tts.py jobs/sample_job.json assets/temp/sample_desk_avatar/audio.wav --config config/default.yaml
+```
+
+When Kokoro is not importable, lacks the expected `KPipeline` API, or fails during synthesis, the script logs a warning and writes a placeholder WAV instead of crashing. Test mode always uses the placeholder WAV.
 
 ## Validate The Blender Template
 
@@ -137,6 +179,7 @@ Useful development flags:
 ```bash
 python3 scripts/run_job.py jobs/sample_job.json --skip-render
 python3 scripts/run_job.py jobs/sample_job.json --skip-export
+python3 scripts/run_job.py jobs/sample_job.json --skip-render --skip-export
 python3 scripts/run_job.py jobs/sample_job.json --skip-tts --skip-lipsync
 python3 scripts/run_job.py jobs/sample_job.json --clean
 ```

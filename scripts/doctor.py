@@ -12,6 +12,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from utils import load_config, load_json, resolve_tool  # noqa: E402
+from generate_tts import kokoro_availability, tts_settings  # noqa: E402
 
 
 REQUIRED_MOUTH_TEXTURES = (
@@ -120,6 +121,27 @@ def check_blender_template(doctor: Doctor, blender_path: Path | None, template_p
             print(f"       {line}")
 
 
+def check_kokoro(doctor: Doctor, config: dict[str, Any], sample_job: Path) -> None:
+    job: dict[str, Any] = {}
+    if sample_job.exists():
+        try:
+            job = load_json(sample_job)
+        except Exception:
+            job = {}
+
+    settings = tts_settings(job, config)
+    if settings["engine"] != "kokoro":
+        doctor.warn("Kokoro TTS", f"config engine is '{settings['engine']}', fallback audio will be used")
+        return
+
+    available, detail = kokoro_availability()
+    voice_detail = f"voice={settings['voice']} speed={settings['speed']} sample_rate={settings['sample_rate']}"
+    if available:
+        doctor.ok("Kokoro TTS", f"{voice_detail}; {detail}")
+    else:
+        doctor.warn("Kokoro TTS", f"{voice_detail}; {detail}; placeholder fallback will be used")
+
+
 def main() -> None:
     doctor = Doctor()
 
@@ -152,9 +174,12 @@ def main() -> None:
     check_tool(doctor, config, "ffmpeg", ["-version"]) if config else None
     check_tool(doctor, config, "rhubarb", ["--version"]) if config else None
 
+    sample_job = PROJECT_ROOT / "jobs" / "sample_job.json"
+    if config:
+        check_kokoro(doctor, config, sample_job)
+
     check_blender_template(doctor, blender_path, PROJECT_ROOT / "blender" / "avatar_template.blend")
 
-    sample_job = PROJECT_ROOT / "jobs" / "sample_job.json"
     if sample_job.exists():
         try:
             load_json(sample_job)

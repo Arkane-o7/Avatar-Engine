@@ -78,6 +78,37 @@ def clean_generated_outputs(root: Path, temp_dir: Path, render_dir: Path, output
         output_path.unlink()
 
 
+def clear_render_frames(root: Path, render_dir: Path) -> None:
+    ensure_inside(render_dir, root / "assets" / "renders")
+    if not render_dir.exists():
+        render_dir.mkdir(parents=True, exist_ok=True)
+        return
+    deleted = 0
+    for frame in render_dir.glob("frame_*.png"):
+        if frame.is_file():
+            frame.unlink()
+            deleted += 1
+    if deleted:
+        print(f"[blender] Cleared {deleted} existing rendered frame(s): {render_dir}")
+
+
+def warn_if_reusing_stale_frames(render_dir: Path, mouth_path: Path) -> None:
+    frames = sorted(render_dir.glob("frame_*.png"))
+    if not frames:
+        print(f"[blender] WARNING: --skip-render requested but no frames exist in: {render_dir}")
+        return
+
+    print(f"[blender] Skipping render; using {len(frames)} existing frame(s): {render_dir}")
+    if mouth_path.exists():
+        oldest_frame_mtime = min(frame.stat().st_mtime for frame in frames)
+        if oldest_frame_mtime < mouth_path.stat().st_mtime:
+            print(
+                "[blender] WARNING: Existing frames are older than the current mouth cues. "
+                "The exported audio and mouth animation may not match. Run without --skip-render "
+                "after changing TTS or lip sync."
+            )
+
+
 def run_blender(
     root: Path,
     job_path: Path,
@@ -117,6 +148,7 @@ def run_blender(
         "--",
         str(job_path),
     ]
+    clear_render_frames(root, render_dir)
     print(f"[blender] Running Blender in background mode: {blender_path}")
     subprocess.run(command, check=True)
 
@@ -187,7 +219,7 @@ def run_pipeline(
             raise FileNotFoundError(f"--skip-tts requested but audio file is missing: {audio_path}")
         print(f"[tts] Skipping TTS; using existing audio: {audio_path}")
     else:
-        generate_tts(job_path, audio_path, test_mode=test_mode)
+        generate_tts(job_path, audio_path, config_path=config_path, test_mode=test_mode)
 
     if skip_lipsync:
         if not mouth_path.exists():
@@ -197,11 +229,7 @@ def run_pipeline(
         generate_lipsync(audio_path, mouth_path, config_path=config_path, test_mode=test_mode)
 
     if skip_render:
-        frames = sorted(render_dir.glob("frame_*.png"))
-        if frames:
-            print(f"[blender] Skipping render; using {len(frames)} existing frame(s): {render_dir}")
-        else:
-            print(f"[blender] WARNING: --skip-render requested but no frames exist in: {render_dir}")
+        warn_if_reusing_stale_frames(render_dir, mouth_path)
     else:
         run_blender(root, job_path, job, config, render_dir, mouth_path, test_mode=test_mode)
 
