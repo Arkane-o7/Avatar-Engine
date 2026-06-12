@@ -15,7 +15,10 @@ if str(SCRIPT_DIR) not in sys.path:
 from camera_cuts import add_camera_cuts, seconds_to_frames  # noqa: E402
 from expression_presets import apply_expression_preset  # noqa: E402
 from gesture_loader import apply_placeholder_gesture  # noqa: E402
-from mouth_mapping import MOUTH_CUE_INDEX, SHAPE_KEY_MOUTH_MAP, shape_key_for_cue  # noqa: E402
+from mouth_mapping import MOUTH_CUE_INDEX, RHU_BARBS, SHAPE_KEY_MOUTH_MAP, shape_key_for_cue, texture_for_cue  # noqa: E402
+
+
+MOUTH_TEXTURE_HANDLER_NAME = "desk_avatar_sync_2d_mouth_texture"
 
 
 def parse_blender_args() -> Path:
@@ -93,18 +96,158 @@ def apply_3d_mouth_animation(mesh_object: Any, mouth_cues: list[dict], fps: int)
     print("[blender] Applied 3D mouth animation.")
 
 
-def apply_2d_mouth_animation(mouth_cues: list[dict], fps: int) -> None:
+def set_material_transparency(material: Any) -> None:
+    for attr, value in (
+        ("blend_method", "BLEND"),
+        ("surface_render_method", "BLENDED"),
+        ("use_screen_refraction", True),
+        ("show_transparent_back", True),
+    ):
+        try:
+            setattr(material, attr, value)
+        except Exception:
+            pass
+
+
+def create_mouth_texture_material(initial_image: Any | None) -> tuple[Any, Any | None]:
+    material = bpy.data.materials.new("MAT_FACE_Surface_Mouth_Texture")
+    material.use_nodes = True
+    material.diffuse_color = (1.0, 1.0, 1.0, 1.0)
+    set_material_transparency(material)
+
+    nodes = material.node_tree.nodes
+    links = material.node_tree.links
+    nodes.clear()
+
+    output_node = nodes.new(type="ShaderNodeOutputMaterial")
+    shader_node = nodes.new(type="ShaderNodeBsdfPrincipled")
+    transparent_node = nodes.new(type="ShaderNodeBsdfTransparent")
+    mix_node = nodes.new(type="ShaderNodeMixShader")
+    texture_node = nodes.new(type="ShaderNodeTexImage")
+    texture_node.name = "Mouth_Texture_Image"
+    texture_node.label = "Mouth Texture"
+    texture_node.image = initial_image
+    texture_node.extension = "CLIP"
+    texture_node.interpolation = "Closest"
+
+    links.new(transparent_node.outputs["BSDF"], mix_node.inputs[1])
+    links.new(shader_node.outputs["BSDF"], mix_node.inputs[2])
+    links.new(mix_node.outputs["Shader"], output_node.inputs["Surface"])
+    links.new(texture_node.outputs["Color"], shader_node.inputs["Base Color"])
+    if "Alpha" in texture_node.outputs:
+        links.new(texture_node.outputs["Alpha"], mix_node.inputs["Fac"])
+
+    return material, texture_node
+
+
+def create_fallback_mouth_material() -> Any:
+    material = bpy.data.materials.new("MAT_Mouth_Fallback")
+    material.diffuse_color = (0.02, 0.01, 0.01, 1.0)
+    return material
+
+
+def load_2d_mouth_images(character: str) -> dict[str, Any]:
+    texture_dir = PROJECT_ROOT / "assets" / "characters" / character / "mouth_textures"
+    rest_path = texture_dir / texture_for_cue("X")
+    fallback_image = None
+    if not rest_path.exists():
+        print(f"[blender] WARNING: Missing fallback mouth texture '{rest_path}'; using a flat fallback material.")
+    else:
+        fallback_image = bpy.data.images.load(str(rest_path), check_existing=True)
+
+    images: dict[str, Any] = {}
+    for cue_value in RHU_BARBS:
+        texture_path = texture_dir / texture_for_cue(cue_value)
+        if not texture_path.exists():
+            if rest_path.exists():
+                print(
+                    f"[blender] WARNING: Missing mouth texture '{texture_path}'; "
+                    f"falling back to '{rest_path}'."
+                )
+                images[cue_value] = fallback_image
+            else:
+                continue
+        else:
+            images[cue_value] = bpy.data.images.load(str(texture_path), check_existing=True)
+
+    print(f"[blender] Loaded 2D mouth textures from: {texture_dir}")
+    return images
+
+
+def cue_for_frame(frame: int, frame_cues: list[tuple[int, int, str]]) -> str:
+    for start_frame, end_frame, cue_value in frame_cues:
+        if start_frame <= frame < end_frame:
+            return cue_value
+    return "X"
+
+
+def assign_face_material(face_surface: Any, material: Any) -> None:
+    if len(face_surface.data.materials) == 0:
+        face_surface.data.materials.append(material)
+    else:
+        face_surface.data.materials[0] = material
+    for polygon in face_surface.data.polygons:
+        polygon.material_index = 0
+
+
+def remove_existing_mouth_handlers() -> None:
+    bpy.app.handlers.frame_change_pre[:] = [
+        handler
+        for handler in bpy.app.handlers.frame_change_pre
+        if getattr(handler, "__name__", "") != MOUTH_TEXTURE_HANDLER_NAME
+    ]
+
+
+def apply_2d_mouth_animation(job: dict[str, Any], mouth_cues: list[dict], fps: int) -> None:
     face_surface = bpy.data.objects.get("FACE_Surface")
     if face_surface is None:
-        print("[blender] WARNING: FACE_Surface missing; cannot keyframe 2D mouth cues.")
+        print("[blender] WARNING: FACE_Surface missing; cannot apply 2D mouth texture cues.")
         return
 
+    character = str(job.get("character", "avatar_01"))
+    images = load_2d_mouth_images(character)
+    if not images:
+        print("[blender] WARNING: No 2D mouth textures were loaded; using a flat fallback material.")
+        assign_face_material(face_surface, create_fallback_mouth_material())
+        return
+
+    initial_image = images.get("X") or next(iter(images.values()))
+    mouth_material, texture_node = create_mouth_texture_material(initial_image)
+    assign_face_material(face_surface, mouth_material)
+
+    frame_cues: list[tuple[int, int, str]] = []
     for cue in mouth_cues:
         frame = seconds_to_frames(float(cue.get("start", 0.0)), fps)
+        end_frame = max(frame + 1, seconds_to_frames(float(cue.get("end", cue.get("start", 0.0))), fps))
         cue_value = str(cue.get("value", "X")).upper()
+        if cue_value not in images:
+            print(f"[blender] WARNING: Unknown mouth cue '{cue_value}'; using X.")
+            cue_value = "X"
+        frame_cues.append((frame, end_frame, cue_value))
         face_surface["mouth_cue"] = MOUTH_CUE_INDEX.get(cue_value, MOUTH_CUE_INDEX["X"])
         face_surface.keyframe_insert(data_path='["mouth_cue"]', frame=frame)
-    print("[blender] Applied 2D placeholder mouth cue animation on FACE_Surface.mouth_cue.")
+
+    remove_existing_mouth_handlers()
+    active_cue: dict[str, str | None] = {"value": None}
+
+    def sync_mouth_texture(scene: Any, depsgraph: Any | None = None) -> None:
+        cue_value = cue_for_frame(scene.frame_current, frame_cues)
+        image = images.get(cue_value) or images.get("X")
+        image = image or initial_image
+        if image is None or texture_node is None:
+            return
+        if active_cue["value"] == cue_value and texture_node.image == image:
+            return
+        active_cue["value"] = cue_value
+        texture_node.image = image
+        mouth_material.diffuse_color = (1.0, 1.0, 1.0, 1.0)
+        mouth_material.update_tag()
+        face_surface.data.update_tag()
+
+    sync_mouth_texture.__name__ = MOUTH_TEXTURE_HANDLER_NAME
+    bpy.app.handlers.frame_change_pre.append(sync_mouth_texture)
+    sync_mouth_texture(bpy.context.scene)
+    print("[blender] Applied 2D mouth texture animation on FACE_Surface.")
 
 
 def apply_performance_beats(job: dict[str, Any], fps: int) -> None:
@@ -160,7 +303,7 @@ def main() -> None:
         if avatar_mesh is not None:
             apply_3d_mouth_animation(avatar_mesh, mouth_cues, int(job.get("fps", 30)))
     else:
-        apply_2d_mouth_animation(mouth_cues, int(job.get("fps", 30)))
+        apply_2d_mouth_animation(job, mouth_cues, int(job.get("fps", 30)))
 
     apply_performance_beats(job, int(job.get("fps", 30)))
     add_camera_cuts(bpy, bpy.context.scene, job.get("camera_cuts", []), int(job.get("fps", 30)))

@@ -98,26 +98,49 @@ python scripts/run_job.py jobs/sample_job.json --test-mode
 
 ## Preparing `blender/avatar_template.blend`
 
-Create or copy a Blender scene to:
+`blender/avatar_template.blend` is the real production scene used by normal pipeline runs. The pipeline only loads this file; it should not be generated or overwritten by runtime code.
+
+Create or copy your production Blender scene to:
 
 ```text
 blender/avatar_template.blend
 ```
 
-To generate a simple local placeholder template, run Blender directly:
+There is also a manual dummy-template utility. Do not run it unless you intentionally want to create a basic placeholder scene. It writes to `blender/avatar_template_BASIC.blend`, not the production template.
 
 ```bash
-/Applications/Blender.app/Contents/MacOS/Blender -b -P blender/create_basic_template.py
+/Applications/Blender.app/Contents/MacOS/Blender -b -P blender/create_basic_template.py -- --force
 ```
 
-This creates a basic desk scene with `CHAR_Avatar`, `ARM_Avatar`, `FACE_Surface`, the required cameras, desk, and lights. It is intentionally primitive, but it is enough for the normal Blender stage to render while you replace the assets incrementally.
+Without `-- --force`, the helper refuses to overwrite an existing dummy template. This creates a basic desk scene with `CHAR_Avatar`, `ARM_Avatar`, `FACE_Surface`, `CAM_Portrait_Main`, `CAM_Landscape_Intro`, `CAM_Landscape_Conclusion`, desk, and lights. It is intentionally primitive, and you can inspect or manually copy from it while building your real scene.
 
 For the MVP, the scene should include:
 
-- Cameras named `CAM_Front_Medium`, `CAM_Front_Close`, and `CAM_Side_ThreeQuarter`.
+- Cameras named `CAM_Portrait_Main`, `CAM_Landscape_Intro`, and `CAM_Landscape_Conclusion`.
 - A 2D face surface object named `FACE_Surface` when `face_mode` is `"2d"`.
 - An avatar mesh with shape keys when using `face_mode` `"3d"`.
 - Shape keys matching `blender/mouth_mapping.py` and `blender/expression_presets.py`.
 - An armature with common bones such as `Head`, `UpperArm.L`, `UpperArm.R`, and `Hand.R` for placeholder gestures.
 
 The Blender driver skips missing optional objects safely and prints warnings so a rough template can be improved incrementally.
+
+## 2D Mouth Textures
+
+For `face_mode: "2d"`, put transparent PNG mouth drawings in:
+
+```text
+assets/characters/avatar_01/mouth_textures/
+```
+
+Required filenames:
+
+- `mouth_X.png` and `mouth_A.png`: closed/rest
+- `mouth_B.png`: M/B/P
+- `mouth_C.png`: E/I
+- `mouth_D.png`: A/open
+- `mouth_E.png`: O
+- `mouth_F.png`: U/W
+- `mouth_G.png`: F/V
+- `mouth_H.png`: L
+
+The PNGs should have the same canvas size, for example 512x512, with transparent background around the mouth art. During Blender renders, Rhubarb cues in `assets/temp/<job_id>/mouth_cues.json` swap the image texture on `FACE_Surface` frame by frame. Missing cue textures fall back to `mouth_X.png` with a warning; if `mouth_X.png` is also missing, the driver uses a flat fallback material and continues.

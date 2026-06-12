@@ -12,10 +12,10 @@
     "sample_rate": 24000
   },
   "camera_cuts": [
-    {"start": 0.0, "camera": "front_medium"},
-    {"start": 2.5, "camera": "front_close"},
-    {"start": 5.5, "camera": "side_threequarter"},
-    {"start": 8.0, "camera": "front_medium"}
+    {"start": 0.0, "camera": "landscape_intro"},
+    {"start": 2.5, "camera": "portrait_main"},
+    {"start": 5.5, "camera": "landscape_conclusion"},
+    {"start": 8.0, "camera": "portrait_main"}
   ],
   "performance_beats": [
     {

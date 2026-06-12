@@ -3,9 +3,13 @@ from __future__ import annotations
 from typing import Any
 
 CAMERA_NAME_MAP: dict[str, str] = {
-    "front_medium": "CAM_Front_Medium",
-    "front_close": "CAM_Front_Close",
-    "side_threequarter": "CAM_Side_ThreeQuarter",
+    "portrait_main": "CAM_Portrait_Main",
+    "landscape_intro": "CAM_Landscape_Intro",
+    "landscape_conclusion": "CAM_Landscape_Conclusion",
+    # Backwards-compatible aliases for older job files.
+    "front_medium": "CAM_Portrait_Main",
+    "front_close": "CAM_Landscape_Conclusion",
+    "side_threequarter": "CAM_Landscape_Intro",
 }
 
 
@@ -28,7 +32,7 @@ def add_camera_cuts(bpy_module: Any, scene: Any, cuts: list[dict], fps: int) -> 
 
     for cut in cuts:
         start_seconds = float(cut.get("start", 0.0))
-        camera_key = str(cut.get("camera", "front_medium"))
+        camera_key = str(cut.get("camera", "portrait_main"))
         camera = lookup_camera(bpy_module, camera_key)
         if camera is None:
             continue

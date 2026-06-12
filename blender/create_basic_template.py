@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import sys
 from pathlib import Path
 
 import bpy  # type: ignore
@@ -8,7 +9,8 @@ from mathutils import Vector  # type: ignore
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-OUTPUT_PATH = SCRIPT_DIR / "avatar_template.blend"
+PRODUCTION_TEMPLATE_PATH = SCRIPT_DIR / "avatar_template.blend"
+OUTPUT_PATH = SCRIPT_DIR / "avatar_template_BASIC.blend"
 
 
 def clear_scene() -> None:
@@ -24,6 +26,12 @@ def make_material(name: str, color: tuple[float, float, float, float]) -> bpy.ty
 
 def assign_material(obj: bpy.types.Object, material: bpy.types.Material) -> None:
     obj.data.materials.append(material)
+
+
+def parent_keep_transform(child: bpy.types.Object, parent: bpy.types.Object) -> None:
+    matrix_world = child.matrix_world.copy()
+    child.parent = parent
+    child.matrix_world = matrix_world
 
 
 def add_cube(
@@ -109,7 +117,7 @@ def create_avatar(materials: dict[str, bpy.types.Material]) -> None:
     right_arm = add_cube("CHAR_Arm_R", (0.62, -0.03, 1.25), (0.16, 0.16, 0.62), materials["jacket"])
 
     for part in (head, neck, left_arm, right_arm):
-        part.parent = body
+        parent_keep_transform(part, body)
 
     face = add_plane(
         "FACE_Surface",
@@ -119,7 +127,7 @@ def create_avatar(materials: dict[str, bpy.types.Material]) -> None:
         materials["face"],
     )
     face["mouth_cue"] = 0
-    face.parent = head
+    parent_keep_transform(face, head)
 
 
 def create_armature() -> None:
@@ -190,10 +198,10 @@ def add_light(
 
 
 def create_cameras_and_lights() -> None:
-    front_medium = add_camera("CAM_Front_Medium", (0.0, -5.3, 2.15), (0.0, -0.2, 1.65), 48.0)
-    add_camera("CAM_Front_Close", (0.0, -3.4, 2.35), (0.0, -0.1, 2.0), 70.0)
-    add_camera("CAM_Side_ThreeQuarter", (3.5, -4.1, 2.1), (0.0, -0.15, 1.75), 52.0)
-    bpy.context.scene.camera = front_medium
+    intro = add_camera("CAM_Landscape_Intro", (0.0, -5.3, 2.15), (0.0, -0.2, 1.65), 48.0)
+    add_camera("CAM_Portrait_Main", (0.0, -3.4, 2.35), (0.0, -0.1, 2.0), 70.0)
+    add_camera("CAM_Landscape_Conclusion", (3.5, -4.1, 2.1), (0.0, -0.15, 1.75), 52.0)
+    bpy.context.scene.camera = intro
 
     add_light("LIGHT_Key", (-2.6, -3.6, 4.2), 600.0, 4.0)
     add_light("LIGHT_Fill", (3.2, -2.4, 2.8), 180.0, 5.0)
@@ -224,7 +232,32 @@ def configure_scene(materials: dict[str, bpy.types.Material]) -> None:
     world.color = (0.035, 0.04, 0.05)
 
 
+def parse_force_flag() -> bool:
+    if "--" not in sys.argv:
+        return False
+    script_args = sys.argv[sys.argv.index("--") + 1 :]
+    unknown_args = [arg for arg in script_args if arg != "--force"]
+    if unknown_args:
+        raise SystemExit(f"Unknown argument(s): {', '.join(unknown_args)}")
+    return "--force" in script_args
+
+
+def validate_output_path(force: bool) -> None:
+    if PRODUCTION_TEMPLATE_PATH.exists():
+        print(f"[template] Production template exists and will not be touched: {PRODUCTION_TEMPLATE_PATH}")
+    if OUTPUT_PATH == PRODUCTION_TEMPLATE_PATH:
+        raise SystemExit("[template] Refusing to write over the production template.")
+    if OUTPUT_PATH.exists() and not force:
+        raise SystemExit(
+            f"[template] Refusing to overwrite existing dummy template: {OUTPUT_PATH}\n"
+            "[template] Re-run with '-- --force' if you intentionally want to replace it."
+        )
+
+
 def main() -> None:
+    force = parse_force_flag()
+    validate_output_path(force)
+
     clear_scene()
     materials = {
         "jacket": make_material("MAT_Avatar_Jacket", (0.08, 0.13, 0.2, 1.0)),
@@ -240,8 +273,8 @@ def main() -> None:
     create_cameras_and_lights()
     configure_scene(materials)
 
-    bpy.ops.wm.save_as_mainfile(filepath=str(OUTPUT_PATH))
-    print(f"[template] Wrote basic Blender template: {OUTPUT_PATH}")
+    bpy.ops.wm.save_as_mainfile(filepath=str(OUTPUT_PATH), compress=True)
+    print(f"[template] Wrote basic dummy Blender template: {OUTPUT_PATH}")
 
 
 if __name__ == "__main__":
