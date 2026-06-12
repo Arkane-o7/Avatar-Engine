@@ -4,6 +4,14 @@
 
 This is intentionally not a photorealistic MetaHuman pipeline and does not use cloud APIs.
 
+## Current Status
+
+- The local pipeline runs end to end from a job JSON to an MP4.
+- Rhubarb, Blender, and FFmpeg can be configured through `config/default.yaml`.
+- `blender/avatar_template.blend` is the production scene. Runtime scripts load it only and must not overwrite it.
+- 2D face mode uses `FACE_Backdrop` and `FACE_Surface`; Rhubarb cues swap mouth PNG textures on `FACE_Surface`.
+- Visual polish is still intentionally lightweight. The current focus is reliable local automation and safe iteration.
+
 ## Project Flow
 
 Input:
@@ -68,10 +76,38 @@ tools:
 
 Each value can be either a command available on `PATH` or an absolute path to the binary.
 
+## Health Check
+
+Run the doctor before debugging a job:
+
+```bash
+python3 scripts/doctor.py
+```
+
+It checks Python, config loading, Blender, FFmpeg, Rhubarb, the production Blender template, sample job loading, asset folders, and required mouth textures.
+
+## Validate The Blender Template
+
+To inspect the production template for required object names without saving it:
+
+```bash
+/Applications/Blender.app/Contents/MacOS/Blender -b blender/avatar_template.blend --python blender/validate_template.py
+```
+
+Required objects:
+
+- `CHAR_Avatar`
+- `ARM_Avatar`
+- `FACE_Surface`
+- `FACE_Backdrop`
+- `CAM_Portrait_Main`
+- `CAM_Landscape_Intro`
+- `CAM_Landscape_Conclusion`
+
 ## Run Test Mode
 
 ```bash
-python scripts/run_job.py jobs/sample_job.json --test-mode
+python3 scripts/run_job.py jobs/sample_job.json --test-mode
 ```
 
 Test mode will:
@@ -87,14 +123,25 @@ Test mode will:
 Set `test_mode: false` in `config/default.yaml`, install the required tools, prepare the Blender template, then run:
 
 ```bash
-python scripts/run_job.py jobs/sample_job.json
+python3 scripts/run_job.py jobs/sample_job.json
 ```
 
 You can also keep config defaults and force test mode only when needed:
 
 ```bash
-python scripts/run_job.py jobs/sample_job.json --test-mode
+python3 scripts/run_job.py jobs/sample_job.json --test-mode
 ```
+
+Useful development flags:
+
+```bash
+python3 scripts/run_job.py jobs/sample_job.json --skip-render
+python3 scripts/run_job.py jobs/sample_job.json --skip-export
+python3 scripts/run_job.py jobs/sample_job.json --skip-tts --skip-lipsync
+python3 scripts/run_job.py jobs/sample_job.json --clean
+```
+
+Skip flags reuse existing generated files under `assets/temp/<job_id>/` and `assets/renders/<job_id>/`. `--clean` removes only this job's generated temp folder, render folder, and output MP4 before running.
 
 ## Preparing `blender/avatar_template.blend`
 
@@ -116,6 +163,7 @@ Without `-- --force`, the helper refuses to overwrite an existing dummy template
 
 For the MVP, the scene should include:
 
+- Objects named `CHAR_Avatar`, `ARM_Avatar`, `FACE_Surface`, and `FACE_Backdrop`.
 - Cameras named `CAM_Portrait_Main`, `CAM_Landscape_Intro`, and `CAM_Landscape_Conclusion`.
 - A 2D face surface object named `FACE_Surface` when `face_mode` is `"2d"`.
 - An avatar mesh with shape keys when using `face_mode` `"3d"`.
@@ -144,3 +192,20 @@ Required filenames:
 - `mouth_H.png`: L
 
 The PNGs should have the same canvas size, for example 512x512, with transparent background around the mouth art. During Blender renders, Rhubarb cues in `assets/temp/<job_id>/mouth_cues.json` swap the image texture on `FACE_Surface` frame by frame. Missing cue textures fall back to `mouth_X.png` with a warning; if `mouth_X.png` is also missing, the driver uses a flat fallback material and continues.
+
+## Generated Files
+
+Generated files are written only under:
+
+- `assets/temp/<job_id>/`
+- `assets/renders/<job_id>/`
+- `assets/output/`
+
+These generated folders, media files, `.DS_Store`, `__pycache__`, and virtual environments should not be committed. Source files, jobs, config, character assets, mouth textures, and `blender/avatar_template.blend` are not deleted by `run_job.py`.
+
+## Sample Jobs
+
+- `jobs/sample_job.json`: full default sample.
+- `jobs/sample_short_test.json`: short smoke test.
+- `jobs/sample_portrait.json`: portrait camera sample.
+- `jobs/sample_landscape_intro.json`: landscape camera sample.

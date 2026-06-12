@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -48,6 +49,33 @@ def create_job_folders(root: Path, job_id: str) -> tuple[Path, Path, Path]:
     for folder in (temp_dir, render_dir, output_dir):
         folder.mkdir(parents=True, exist_ok=True)
     return temp_dir, render_dir, output_dir
+
+
+def ensure_inside(path: Path, allowed_parent: Path) -> None:
+    resolved_path = path.resolve()
+    resolved_parent = allowed_parent.resolve()
+    if resolved_path != resolved_parent and resolved_parent not in resolved_path.parents:
+        raise ValueError(f"Refusing to clean path outside generated folder: {path}")
+
+
+def clean_generated_outputs(root: Path, temp_dir: Path, render_dir: Path, output_path: Path) -> None:
+    generated_roots = {
+        "temp": root / "assets" / "temp",
+        "renders": root / "assets" / "renders",
+        "output": root / "assets" / "output",
+    }
+
+    for folder, allowed_parent in ((temp_dir, generated_roots["temp"]), (render_dir, generated_roots["renders"])):
+        ensure_inside(folder, allowed_parent)
+        if folder.exists():
+            print(f"[clean] Removing generated folder: {folder}")
+            shutil.rmtree(folder)
+        folder.mkdir(parents=True, exist_ok=True)
+
+    ensure_inside(output_path, generated_roots["output"])
+    if output_path.exists():
+        print(f"[clean] Removing generated output file: {output_path}")
+        output_path.unlink()
 
 
 def run_blender(
@@ -107,7 +135,17 @@ def make_placeholder_render(job: dict[str, Any], render_dir: Path, config: dict[
     print(f"[blender] Wrote {frame_count} placeholder frames to: {render_dir}")
 
 
-def run_pipeline(job_path: Path, config_path: Path, test_mode: bool = False) -> Path | None:
+def run_pipeline(
+    job_path: Path,
+    config_path: Path,
+    test_mode: bool = False,
+    skip_tts: bool = False,
+    skip_lipsync: bool = False,
+    skip_render: bool = False,
+    skip_export: bool = False,
+    keep_temp: bool = False,
+    clean: bool = False,
+) -> Path | None:
     root = project_root()
     job_path = job_path if job_path.is_absolute() else root / job_path
     config_path = config_path if config_path.is_absolute() else root / config_path
@@ -126,15 +164,46 @@ def run_pipeline(job_path: Path, config_path: Path, test_mode: bool = False) -> 
     audio_path = temp_dir / "audio.wav"
     mouth_path = temp_dir / "mouth_cues.json"
 
+    if clean:
+        clean_generated_outputs(root, temp_dir, render_dir, output_path)
+
     print(f"[job] Starting '{job_id}'")
     print(f"[job] Test mode: {'on' if test_mode else 'off'}")
+    print(
+        "[job] Skips: "
+        f"tts={'on' if skip_tts else 'off'}, "
+        f"lipsync={'on' if skip_lipsync else 'off'}, "
+        f"render={'on' if skip_render else 'off'}, "
+        f"export={'on' if skip_export else 'off'}"
+    )
+    if keep_temp:
+        print("[job] Keep temp: on")
     print(f"[job] Temp: {temp_dir}")
     print(f"[job] Renders: {render_dir}")
     print(f"[job] Output: {output_path}")
 
-    generate_tts(job_path, audio_path, test_mode=test_mode)
-    generate_lipsync(audio_path, mouth_path, config_path=config_path, test_mode=test_mode)
-    run_blender(root, job_path, job, config, render_dir, mouth_path, test_mode=test_mode)
+    if skip_tts:
+        if not audio_path.exists():
+            raise FileNotFoundError(f"--skip-tts requested but audio file is missing: {audio_path}")
+        print(f"[tts] Skipping TTS; using existing audio: {audio_path}")
+    else:
+        generate_tts(job_path, audio_path, test_mode=test_mode)
+
+    if skip_lipsync:
+        if not mouth_path.exists():
+            raise FileNotFoundError(f"--skip-lipsync requested but mouth cue file is missing: {mouth_path}")
+        print(f"[lipsync] Skipping lip sync; using existing cues: {mouth_path}")
+    else:
+        generate_lipsync(audio_path, mouth_path, config_path=config_path, test_mode=test_mode)
+
+    if skip_render:
+        frames = sorted(render_dir.glob("frame_*.png"))
+        if frames:
+            print(f"[blender] Skipping render; using {len(frames)} existing frame(s): {render_dir}")
+        else:
+            print(f"[blender] WARNING: --skip-render requested but no frames exist in: {render_dir}")
+    else:
+        run_blender(root, job_path, job, config, render_dir, mouth_path, test_mode=test_mode)
 
     fps = int(job.get("fps", 30))
     try:
@@ -142,6 +211,11 @@ def run_pipeline(job_path: Path, config_path: Path, test_mode: bool = False) -> 
         print(f"[job] Audio duration: {duration:.2f}s at {fps} fps")
     except Exception as exc:
         print(f"[job] WARNING: Could not read audio duration: {exc}")
+
+    if skip_export:
+        print("[export] Skipping MP4 export.")
+        print("[job] Done: export skipped by request.")
+        return None
 
     exported = export_video(
         render_dir=render_dir,
@@ -163,10 +237,26 @@ def main() -> None:
     parser.add_argument("job_json", nargs="?", type=Path, default=Path("jobs/sample_job.json"))
     parser.add_argument("--config", type=Path, default=Path("config/default.yaml"))
     parser.add_argument("--test-mode", action="store_true")
+    parser.add_argument("--skip-tts", action="store_true", help="Reuse assets/temp/<job_id>/audio.wav.")
+    parser.add_argument("--skip-lipsync", action="store_true", help="Reuse assets/temp/<job_id>/mouth_cues.json.")
+    parser.add_argument("--skip-render", action="store_true", help="Reuse existing assets/renders/<job_id>/frame_*.png.")
+    parser.add_argument("--skip-export", action="store_true", help="Run generation steps but do not create an MP4.")
+    parser.add_argument("--keep-temp", action="store_true", help="Explicitly keep generated temp files. This is the default.")
+    parser.add_argument("--clean", action="store_true", help="Clean only this job's temp, render frames, and MP4 before running.")
     args = parser.parse_args()
 
     try:
-        run_pipeline(args.job_json, args.config, args.test_mode)
+        run_pipeline(
+            args.job_json,
+            args.config,
+            test_mode=args.test_mode,
+            skip_tts=args.skip_tts,
+            skip_lipsync=args.skip_lipsync,
+            skip_render=args.skip_render,
+            skip_export=args.skip_export,
+            keep_temp=args.keep_temp,
+            clean=args.clean,
+        )
     except subprocess.CalledProcessError as exc:
         print(f"[error] External command failed with exit code {exc.returncode}: {exc.cmd}", file=sys.stderr)
         raise SystemExit(exc.returncode)
