@@ -9,7 +9,8 @@ from typing import Any
 
 from export_video import export_video
 from generate_lipsync import generate_lipsync, wav_duration_seconds
-from generate_tts import generate_tts
+from generate_tts import generate_tts_result
+from run_manifest import analyze_outputs, manifest_data, print_status_report, write_manifest
 from utils import create_placeholder_frames, load_config, load_json, resolve_project_path, resolve_tool
 
 
@@ -109,6 +110,16 @@ def warn_if_reusing_stale_frames(render_dir: Path, mouth_path: Path) -> None:
             )
 
 
+def warn_stage(stage: str, reasons: list[str]) -> None:
+    for reason in reasons:
+        print(f"[stale:{stage}] WARNING: {reason}")
+
+
+def previous_tts_engine(manifest: dict[str, Any]) -> str:
+    engine = manifest.get("tts_engine_used")
+    return str(engine) if engine else "existing"
+
+
 def run_blender(
     root: Path,
     job_path: Path,
@@ -177,6 +188,12 @@ def run_pipeline(
     skip_export: bool = False,
     keep_temp: bool = False,
     clean: bool = False,
+    force_tts: bool = False,
+    force_lipsync: bool = False,
+    force_render: bool = False,
+    force_export: bool = False,
+    force_all: bool = False,
+    status: bool = False,
 ) -> Path | None:
     root = project_root()
     job_path = job_path if job_path.is_absolute() else root / job_path
@@ -191,10 +208,60 @@ def run_pipeline(
     validate_job(job, job_path, root)
 
     job_id = str(job["job_id"])
-    temp_dir, render_dir, _ = create_job_folders(root, job_id)
+    temp_dir = root / "assets" / "temp" / job_id
+    render_dir = root / "assets" / "renders" / job_id
     output_path = resolve_project_path(root, str(job["output_path"]))
     audio_path = temp_dir / "audio.wav"
     mouth_path = temp_dir / "mouth_cues.json"
+    manifest_path = temp_dir / "run_manifest.json"
+    template_path = root / "blender" / "avatar_template.blend"
+
+    if force_all:
+        force_tts = force_lipsync = force_render = force_export = True
+    if force_tts:
+        skip_tts = False
+    if force_lipsync:
+        skip_lipsync = False
+    if force_render:
+        skip_render = False
+    if force_export:
+        skip_export = False
+
+    flags = {
+        "test_mode": test_mode,
+        "skip_tts": skip_tts,
+        "skip_lipsync": skip_lipsync,
+        "skip_render": skip_render,
+        "skip_export": skip_export,
+        "keep_temp": keep_temp,
+        "clean": clean,
+        "force_tts": force_tts,
+        "force_lipsync": force_lipsync,
+        "force_render": force_render,
+        "force_export": force_export,
+        "force_all": force_all,
+        "status": status,
+    }
+
+    initial_analysis = analyze_outputs(
+        job=job,
+        job_path=job_path,
+        config_path=config_path,
+        manifest_path=manifest_path,
+        audio_path=audio_path,
+        mouth_path=mouth_path,
+        render_dir=render_dir,
+        output_path=output_path,
+        template_path=template_path,
+        config=config,
+        probe_output=False,
+    )
+
+    if status:
+        print_status_report(initial_analysis, flags)
+        return None
+
+    create_job_folders(root, job_id)
 
     if clean:
         clean_generated_outputs(root, temp_dir, render_dir, output_path)
@@ -208,27 +275,67 @@ def run_pipeline(
         f"render={'on' if skip_render else 'off'}, "
         f"export={'on' if skip_export else 'off'}"
     )
+    print(
+        "[job] Force: "
+        f"tts={'on' if force_tts else 'off'}, "
+        f"lipsync={'on' if force_lipsync else 'off'}, "
+        f"render={'on' if force_render else 'off'}, "
+        f"export={'on' if force_export else 'off'}"
+    )
     if keep_temp:
         print("[job] Keep temp: on")
     print(f"[job] Temp: {temp_dir}")
     print(f"[job] Renders: {render_dir}")
     print(f"[job] Output: {output_path}")
 
+    tts_engine_used = previous_tts_engine(initial_analysis.get("previous_manifest", {}))
     if skip_tts:
+        warn_stage("tts", initial_analysis["reasons"]["tts"])
         if not audio_path.exists():
+            print(f"[tts] WARNING: --skip-tts requested but audio file is missing: {audio_path}")
             raise FileNotFoundError(f"--skip-tts requested but audio file is missing: {audio_path}")
         print(f"[tts] Skipping TTS; using existing audio: {audio_path}")
     else:
-        generate_tts(job_path, audio_path, config_path=config_path, test_mode=test_mode)
+        tts_result = generate_tts_result(job_path, audio_path, config_path=config_path, test_mode=test_mode)
+        tts_engine_used = tts_result.engine_used
 
+    after_tts_analysis = analyze_outputs(
+        job=job,
+        job_path=job_path,
+        config_path=config_path,
+        manifest_path=manifest_path,
+        audio_path=audio_path,
+        mouth_path=mouth_path,
+        render_dir=render_dir,
+        output_path=output_path,
+        template_path=template_path,
+        config=config,
+        probe_output=False,
+    )
     if skip_lipsync:
+        warn_stage("lipsync", after_tts_analysis["reasons"]["lipsync"])
         if not mouth_path.exists():
+            print(f"[lipsync] WARNING: --skip-lipsync requested but mouth cue file is missing: {mouth_path}")
             raise FileNotFoundError(f"--skip-lipsync requested but mouth cue file is missing: {mouth_path}")
         print(f"[lipsync] Skipping lip sync; using existing cues: {mouth_path}")
     else:
         generate_lipsync(audio_path, mouth_path, config_path=config_path, test_mode=test_mode)
 
+    after_lipsync_analysis = analyze_outputs(
+        job=job,
+        job_path=job_path,
+        config_path=config_path,
+        manifest_path=manifest_path,
+        audio_path=audio_path,
+        mouth_path=mouth_path,
+        render_dir=render_dir,
+        output_path=output_path,
+        template_path=template_path,
+        config=config,
+        probe_output=False,
+    )
     if skip_render:
+        warn_stage("render", after_lipsync_analysis["reasons"]["render"])
         warn_if_reusing_stale_frames(render_dir, mouth_path)
     else:
         run_blender(root, job_path, job, config, render_dir, mouth_path, test_mode=test_mode)
@@ -240,9 +347,41 @@ def run_pipeline(
     except Exception as exc:
         print(f"[job] WARNING: Could not read audio duration: {exc}")
 
+    after_render_analysis = analyze_outputs(
+        job=job,
+        job_path=job_path,
+        config_path=config_path,
+        manifest_path=manifest_path,
+        audio_path=audio_path,
+        mouth_path=mouth_path,
+        render_dir=render_dir,
+        output_path=output_path,
+        template_path=template_path,
+        config=config,
+        probe_output=False,
+    )
     if skip_export:
+        warn_stage("export", after_render_analysis["reasons"]["export"])
         print("[export] Skipping MP4 export.")
         print("[job] Done: export skipped by request.")
+        write_manifest(
+            manifest_path,
+            manifest_data(
+                job=job,
+                job_path=job_path,
+                config_path=config_path,
+                manifest_path=manifest_path,
+                audio_path=audio_path,
+                mouth_path=mouth_path,
+                render_dir=render_dir,
+                output_path=output_path,
+                template_path=template_path,
+                config=config,
+                flags=flags,
+                tts_engine_used=tts_engine_used,
+            ),
+        )
+        print(f"[manifest] Wrote run manifest: {manifest_path}")
         return None
 
     exported = export_video(
@@ -257,6 +396,24 @@ def run_pipeline(
         print(f"[job] Done: {exported}")
     else:
         print("[job] Done with warnings: MP4 export was skipped.")
+    write_manifest(
+        manifest_path,
+        manifest_data(
+            job=job,
+            job_path=job_path,
+            config_path=config_path,
+            manifest_path=manifest_path,
+            audio_path=audio_path,
+            mouth_path=mouth_path,
+            render_dir=render_dir,
+            output_path=output_path,
+            template_path=template_path,
+            config=config,
+            flags=flags,
+            tts_engine_used=tts_engine_used,
+        ),
+    )
+    print(f"[manifest] Wrote run manifest: {manifest_path}")
     return exported
 
 
@@ -271,6 +428,12 @@ def main() -> None:
     parser.add_argument("--skip-export", action="store_true", help="Run generation steps but do not create an MP4.")
     parser.add_argument("--keep-temp", action="store_true", help="Explicitly keep generated temp files. This is the default.")
     parser.add_argument("--clean", action="store_true", help="Clean only this job's temp, render frames, and MP4 before running.")
+    parser.add_argument("--force-tts", action="store_true", help="Regenerate TTS audio even when a skip flag was provided.")
+    parser.add_argument("--force-lipsync", action="store_true", help="Regenerate mouth cues even when a skip flag was provided.")
+    parser.add_argument("--force-render", action="store_true", help="Regenerate rendered frames even when a skip flag was provided.")
+    parser.add_argument("--force-export", action="store_true", help="Regenerate the output MP4 even when a skip flag was provided.")
+    parser.add_argument("--force-all", action="store_true", help="Regenerate audio, mouth cues, rendered frames, and MP4.")
+    parser.add_argument("--status", action="store_true", help="Print stale/fresh status without running generation tools.")
     args = parser.parse_args()
 
     try:
@@ -284,6 +447,12 @@ def main() -> None:
             skip_export=args.skip_export,
             keep_temp=args.keep_temp,
             clean=args.clean,
+            force_tts=args.force_tts,
+            force_lipsync=args.force_lipsync,
+            force_render=args.force_render,
+            force_export=args.force_export,
+            force_all=args.force_all,
+            status=args.status,
         )
     except subprocess.CalledProcessError as exc:
         print(f"[error] External command failed with exit code {exc.returncode}: {exc.cmd}", file=sys.stderr)

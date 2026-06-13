@@ -13,6 +13,7 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from utils import load_config, load_json, resolve_tool  # noqa: E402
 from generate_tts import kokoro_availability, tts_settings  # noqa: E402
+from run_manifest import sha256_text  # noqa: E402
 
 
 REQUIRED_MOUTH_TEXTURES = (
@@ -111,11 +112,19 @@ def check_blender_template(doctor: Doctor, blender_path: Path | None, template_p
         doctor.fail("Template object validation", str(exc))
         return
 
-    output = "\n".join(line for line in (result.stdout + "\n" + result.stderr).splitlines() if "[template]" in line)
+    output_lines = [line for line in (result.stdout + "\n" + result.stderr).splitlines() if "[template]" in line]
+    output = "\n".join(output_lines)
+    missing_optional_actions = [
+        line.split("WARN missing:", 1)[1].strip()
+        for line in output_lines
+        if "WARN missing:" in line
+    ]
     if result.returncode == 0:
         doctor.ok("Template object validation", "all required objects found")
     else:
         doctor.fail("Template object validation", "missing required objects")
+    if missing_optional_actions:
+        doctor.warn("Template optional gesture Actions", ", ".join(missing_optional_actions))
     if output:
         for line in output.splitlines():
             print(f"       {line}")
@@ -158,6 +167,9 @@ def main() -> None:
         doctor.ok("Project root detection", str(PROJECT_ROOT))
     else:
         doctor.fail("Project root detection", "expected scripts/run_job.py and blender/")
+
+    if sha256_text("manifest-check"):
+        doctor.ok("Run manifest helper", "importable")
 
     config_path = PROJECT_ROOT / "config" / "default.yaml"
     config: dict[str, Any] = {}

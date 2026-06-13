@@ -5,6 +5,7 @@ import importlib
 import math
 import struct
 import wave
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -18,6 +19,12 @@ DEFAULT_TTS_SETTINGS = {
     "sample_rate": 24000,
     "lang_code": "a",
 }
+
+
+@dataclass(frozen=True)
+class TTSResult:
+    path: Path
+    engine_used: str
 
 
 def project_root() -> Path:
@@ -189,6 +196,15 @@ def generate_tts(
     config_path: Path | None = None,
     test_mode: bool = False,
 ) -> Path:
+    return generate_tts_result(job_json_path, output_wav, config_path, test_mode).path
+
+
+def generate_tts_result(
+    job_json_path: Path,
+    output_wav: Path | None = None,
+    config_path: Path | None = None,
+    test_mode: bool = False,
+) -> TTSResult:
     job = load_json(job_json_path)
     config = load_default_config(config_path)
     settings = tts_settings(job, config)
@@ -199,16 +215,18 @@ def generate_tts(
     print(f"[tts] Generating audio for job: {job.get('job_id', '<unknown>')}")
     if not test_mode and generate_with_kokoro(job, settings, output_wav):
         print(f"[tts] Wrote Kokoro audio: {output_wav}")
-        return output_wav
+        return TTSResult(output_wav, "kokoro")
 
     if test_mode:
         print("[tts] Test mode enabled; using placeholder beep WAV.")
+        engine_used = "placeholder_test"
     else:
         print("[tts] WARNING: Kokoro is unavailable or not configured; using placeholder WAV.")
+        engine_used = "placeholder_fallback"
 
     generate_placeholder_wav(output_wav, estimate_duration_seconds(script), sample_rate)
     print(f"[tts] Wrote placeholder audio: {output_wav}")
-    return output_wav
+    return TTSResult(output_wav, engine_used)
 
 
 def main() -> None:

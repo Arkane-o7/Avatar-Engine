@@ -14,7 +14,7 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from camera_cuts import add_camera_cuts, seconds_to_frames  # noqa: E402
 from expression_presets import apply_expression_preset  # noqa: E402
-from gesture_loader import apply_placeholder_gesture  # noqa: E402
+from gesture_loader import apply_action_gestures, apply_placeholder_gesture  # noqa: E402
 from mouth_mapping import MOUTH_CUE_INDEX, RHU_BARBS, SHAPE_KEY_MOUTH_MAP, shape_key_for_cue, texture_for_cue  # noqa: E402
 
 
@@ -305,8 +305,10 @@ def main() -> None:
     else:
         apply_2d_mouth_animation(job, mouth_cues, int(job.get("fps", 30)))
 
-    apply_performance_beats(job, int(job.get("fps", 30)))
-    add_camera_cuts(bpy, bpy.context.scene, job.get("camera_cuts", []), int(job.get("fps", 30)))
+    fps = int(job.get("fps", 30))
+    apply_performance_beats(job, fps)
+    apply_action_gestures(bpy, job, fps, bpy.context.scene.frame_start, bpy.context.scene.frame_end)
+    add_camera_cuts(bpy, bpy.context.scene, job.get("camera_cuts", []), fps)
 
     render_dir.mkdir(parents=True, exist_ok=True)
     bpy.context.scene.render.filepath = str(render_dir / "frame_#####")
