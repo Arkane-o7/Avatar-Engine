@@ -63,6 +63,74 @@ def add_audio_to_timeline(audio_path: Path) -> None:
         print(f"[blender] WARNING: Could not add audio to timeline: {exc}")
 
 
+def configure_per_camera_resolution(job: dict[str, Any], width: int, height: int, percentage: int = 100) -> None:
+    if bool(job.get("use_per_camera_resolution", True)):
+        print("[blender] Keeping template per-camera resolution settings.")
+        return
+
+    updated = 0
+    preserve_portrait_framing = bool(job.get("preserve_portrait_framing", True))
+    output_aspect = width / max(1, height)
+    for obj in bpy.data.objects:
+        if getattr(obj, "type", "") != "CAMERA":
+            continue
+        camera_data = getattr(obj, "data", None)
+        props = getattr(camera_data, "per_camera_resolution", None)
+        if props is None:
+            continue
+        original_aspect = props.resolution_x / max(1, props.resolution_y)
+        if preserve_portrait_framing and original_aspect < 1.0 and output_aspect > 1.0:
+            set_if_present(camera_data, "sensor_fit", "VERTICAL")
+            print(f"[blender] Preserving vertical framing for portrait camera '{obj.name}'.")
+        props.use_custom_resolution = True
+        props.resolution_x = width
+        props.resolution_y = height
+        props.resolution_percentage = percentage
+        props.pixel_aspect_x = 1.0
+        props.pixel_aspect_y = 1.0
+        updated += 1
+
+    if updated:
+        print(f"[blender] Set per-camera resolution to {width}x{height} at {percentage}% for {updated} camera(s).")
+
+
+def set_if_present(target: Any, name: str, value: Any) -> None:
+    if not hasattr(target, name):
+        return
+    try:
+        setattr(target, name, value)
+    except Exception:
+        pass
+
+
+def apply_render_quality(job: dict[str, Any]) -> None:
+    quality = str(job.get("render_quality", "final")).lower()
+    if quality not in {"draft", "preview", "fast"}:
+        return
+
+    scene = bpy.context.scene
+    eevee = getattr(scene, "eevee", None)
+    if eevee is None:
+        return
+
+    set_if_present(eevee, "taa_render_samples", int(job.get("render_samples", 8)))
+    set_if_present(eevee, "taa_samples", 4)
+    set_if_present(eevee, "use_raytracing", False)
+    set_if_present(eevee, "use_volumetric_shadows", False)
+    set_if_present(eevee, "volumetric_samples", 8)
+    set_if_present(eevee, "volumetric_shadow_samples", 4)
+    set_if_present(eevee, "shadow_resolution_scale", 0.25)
+    set_if_present(eevee, "shadow_pool_size", 128)
+    set_if_present(eevee, "gi_cubemap_resolution", 128)
+    set_if_present(eevee, "gi_visibility_resolution", 16)
+    set_if_present(eevee, "fast_gi_ray_count", 1)
+    set_if_present(eevee, "fast_gi_step_count", 2)
+    set_if_present(eevee, "fast_gi_resolution", 1)
+    if bool(job.get("disable_shadows", False)):
+        set_if_present(eevee, "use_shadows", False)
+    print(f"[blender] Render quality: {quality} preview settings enabled.")
+
+
 def reset_mouth_shape_keys(mesh_object: Any, frame: int) -> None:
     shape_keys = getattr(getattr(mesh_object, "data", None), "shape_keys", None)
     key_blocks = getattr(shape_keys, "key_blocks", None)
@@ -268,19 +336,78 @@ def configure_render(job: dict[str, Any], mouth_metadata: dict[str, Any]) -> Non
     resolution = job.get("resolution", [1920, 1080])
     duration = float(mouth_metadata.get("duration", 5.0))
 
-    scene.render.fps = fps
-    scene.render.resolution_x = int(resolution[0])
-    scene.render.resolution_y = int(resolution[1])
-    scene.frame_start = 1
-    scene.frame_end = max(1, int(duration * fps))
-    scene.render.image_settings.file_format = "PNG"
     for engine in ("BLENDER_EEVEE_NEXT", "BLENDER_EEVEE"):
         try:
             scene.render.engine = engine
             break
         except TypeError:
             continue
-    print(f"[blender] Render configured: {fps} fps, {resolution[0]}x{resolution[1]}, frames 1-{scene.frame_end}.")
+    apply_render_quality(job)
+    scene.render.fps = fps
+    scene.render.resolution_x = int(resolution[0])
+    scene.render.resolution_y = int(resolution[1])
+    scene.render.resolution_percentage = 100
+    configure_per_camera_resolution(job, scene.render.resolution_x, scene.render.resolution_y, scene.render.resolution_percentage)
+    scene.frame_start = 1
+    scene.frame_end = max(1, int(duration * fps))
+    scene.render.image_settings.file_format = "PNG"
+    print(
+        "[blender] Render configured: "
+        f"{scene.render.fps} fps, "
+        f"{scene.render.resolution_x}x{scene.render.resolution_y} at {scene.render.resolution_percentage}%, "
+        f"frames 1-{scene.frame_end}."
+    )
+
+
+def camera_for_frame(scene: Any, frame: int) -> Any | None:
+    active_camera = scene.camera
+    for marker in sorted(scene.timeline_markers, key=lambda item: item.frame):
+        if marker.frame <= frame and marker.camera is not None:
+            active_camera = marker.camera
+        elif marker.frame > frame:
+            break
+    return active_camera
+
+
+def apply_camera_resolution(job: dict[str, Any], scene: Any) -> tuple[int, int, int]:
+    use_per_camera_resolution = bool(job.get("use_per_camera_resolution", True))
+    if use_per_camera_resolution and scene.camera is not None:
+        props = getattr(getattr(scene.camera, "data", None), "per_camera_resolution", None)
+        if props is not None and bool(props.use_custom_resolution):
+            scale = max(0.01, float(job.get("camera_resolution_scale", 1.0)))
+            scene.render.resolution_x = max(1, int(round(float(props.resolution_x) * scale)))
+            scene.render.resolution_y = max(1, int(round(float(props.resolution_y) * scale)))
+            scene.render.resolution_percentage = int(props.resolution_percentage)
+            scene.render.pixel_aspect_x = float(props.pixel_aspect_x)
+            scene.render.pixel_aspect_y = float(props.pixel_aspect_y)
+            return scene.render.resolution_x, scene.render.resolution_y, scene.render.resolution_percentage
+
+    resolution = job.get("resolution", [1920, 1080])
+    scene.render.resolution_x = int(resolution[0])
+    scene.render.resolution_y = int(resolution[1])
+    scene.render.resolution_percentage = 100
+    scene.render.pixel_aspect_x = 1.0
+    scene.render.pixel_aspect_y = 1.0
+    return scene.render.resolution_x, scene.render.resolution_y, scene.render.resolution_percentage
+
+
+def render_frame_sequence(job: dict[str, Any], render_dir: Path) -> None:
+    scene = bpy.context.scene
+    previous_camera_name = None
+    previous_resolution = None
+    for frame in range(scene.frame_start, scene.frame_end + 1):
+        scene.frame_set(frame)
+        camera = camera_for_frame(scene, frame)
+        if camera is not None:
+            scene.camera = camera
+        resolution = apply_camera_resolution(job, scene)
+        camera_name = getattr(scene.camera, "name", None)
+        if camera_name != previous_camera_name or resolution != previous_resolution:
+            print(f"[blender:camera] Frame {frame}: {camera_name} at {resolution[0]}x{resolution[1]} {resolution[2]}%.")
+            previous_camera_name = camera_name
+            previous_resolution = resolution
+        scene.render.filepath = str(render_dir / f"frame_{frame:05d}")
+        bpy.ops.render.render(write_still=True)
 
 
 def main() -> None:
@@ -313,7 +440,7 @@ def main() -> None:
     render_dir.mkdir(parents=True, exist_ok=True)
     bpy.context.scene.render.filepath = str(render_dir / "frame_#####")
     print(f"[blender] Rendering PNG frames to: {render_dir}")
-    bpy.ops.render.render(animation=True)
+    render_frame_sequence(job, render_dir)
 
 
 if __name__ == "__main__":

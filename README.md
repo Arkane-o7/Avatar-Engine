@@ -1,6 +1,6 @@
 # desk-avatar-engine
 
-`desk-avatar-engine` is a local command-line MVP for generating stylized 3D desk-avatar videos. It loads a job JSON, creates local placeholder or TTS audio, generates Rhubarb-style mouth cues, drives a Blender template scene, renders PNG frames, and uses FFmpeg to export an MP4.
+`desk-avatar-engine` is the local news-anchor rendering module for an AI-automated news channel. It loads a job JSON, creates local placeholder or Kokoro TTS audio, generates Rhubarb mouth cues, drives a Blender anchor desk scene, renders camera POV frames, and uses FFmpeg to export an MP4 for the larger episode pipeline.
 
 This is intentionally not a photorealistic MetaHuman pipeline and does not use cloud APIs.
 
@@ -10,7 +10,18 @@ This is intentionally not a photorealistic MetaHuman pipeline and does not use c
 - Rhubarb, Blender, FFmpeg, and local Kokoro TTS defaults can be configured through `config/default.yaml`.
 - `blender/avatar_template.blend` is the production scene. Runtime scripts load it only and must not overwrite it.
 - 2D face mode uses `FACE_Backdrop` and `FACE_Surface`; Rhubarb cues swap mouth PNG textures on `FACE_Surface`.
-- Visual polish is still intentionally lightweight. The current focus is reliable local automation and safe iteration.
+- Camera jobs use semantic POVs: `landscape_intro`, `portrait_main`, and `landscape_conclusion`.
+- The Blender template can preserve per-camera aspect ratios; FFmpeg fits mixed portrait/landscape frames into the final MP4 canvas without cropping.
+- Preview mode can render very quickly with draft settings; final mode keeps lighting/shadows for publishable segments.
+
+## Documentation
+
+- [News Anchor Workflow](docs/NEWS_ANCHOR_WORKFLOW.md): how this module fits into the AI news channel.
+- [Blender Scene Guide](docs/BLENDER_SCENE_GUIDE.md): required objects, cameras, face setup, Actions, and scene contract.
+- [Rendering And Optimization](docs/RENDERING_AND_OPTIMIZATION.md): preview vs final quality, polygon reduction, baking, and speed tips.
+- [Avatar 01 Notes](assets/characters/avatar_01/README.md): character asset expectations and mouth texture setup.
+- [Gesture Asset Notes](assets/characters/avatar_01/gestures/README.md): placeholder for future exported gesture clips.
+- [Agent Notes](AGENTS.md): repo guardrails for future Codex/agent work.
 
 ## Project Flow
 
@@ -35,6 +46,32 @@ Pipeline:
 5. Animate mouth cues, expressions, gestures, and camera cuts.
 6. Render PNG frames to `assets/renders/<job_id>/`.
 7. Export an MP4 with FFmpeg when FFmpeg is available.
+
+## Quick News Anchor Commands
+
+Always activate the venv first:
+
+```bash
+source .venv/bin/activate
+```
+
+Fast preview:
+
+```bash
+python3 scripts/run_job.py jobs/news_anchor_preview.json --force-all
+```
+
+Final-quality segment:
+
+```bash
+python3 scripts/run_job.py jobs/news_anchor_segment.json --force-all
+```
+
+Check stale/reuse status:
+
+```bash
+python3 scripts/run_job.py jobs/news_anchor_segment.json --status
+```
 
 ## Required Tools
 
@@ -204,6 +241,38 @@ python3 scripts/run_job.py jobs/sample_job.json --force-all
 
 Stage-specific force flags are also available: `--force-tts`, `--force-lipsync`, `--force-render`, and `--force-export`. Force flags regenerate that stage even if a skip flag was passed. `--clean` removes only this job's generated temp folder, render folder, and output MP4 before running.
 
+## News Anchor Cameras
+
+Use these semantic camera names in job JSON:
+
+- `landscape_intro`: wide opening newsroom/desk shot.
+- `portrait_main`: tight anchor shot.
+- `landscape_conclusion`: alternate wide or closing shot.
+
+They map to:
+
+- `CAM_Landscape_Intro`
+- `CAM_Portrait_Main`
+- `CAM_Landscape_Conclusion`
+
+The production template uses per-camera resolution settings. Keep that enabled for mixed POV jobs so portrait shots keep their vertical framing. The exporter scales and pads frames into the job's final canvas instead of cropping them.
+
+For final quality, use `camera_resolution_scale` to render camera POVs at higher resolution while preserving their aspect ratio:
+
+```json
+"resolution": [1920, 1080],
+"camera_resolution_scale": 2.0
+```
+
+For fast previews:
+
+```json
+"resolution": [960, 540],
+"camera_resolution_scale": 1.0,
+"render_quality": "draft",
+"render_samples": 4
+```
+
 ## Preparing `blender/avatar_template.blend`
 
 `blender/avatar_template.blend` is the real production scene used by normal pipeline runs. The pipeline only loads this file; it should not be generated or overwritten by runtime code.
@@ -311,6 +380,8 @@ These generated folders, media files, `.DS_Store`, `__pycache__`, and virtual en
 
 ## Sample Jobs
 
+- `jobs/news_anchor_preview.json`: fast news-anchor preview job.
+- `jobs/news_anchor_segment.json`: final-quality news-anchor segment sample.
 - `jobs/sample_job.json`: full default sample.
 - `jobs/sample_short_test.json`: short smoke test.
 - `jobs/sample_portrait.json`: portrait camera sample.

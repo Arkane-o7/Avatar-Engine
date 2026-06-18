@@ -258,7 +258,7 @@ def run_pipeline(
     )
 
     if status:
-        print_status_report(initial_analysis, flags)
+        print_status_report(initial_analysis, flags, job_path)
         return None
 
     create_job_folders(root, job_id)
@@ -391,6 +391,7 @@ def run_pipeline(
         fps=fps,
         config_path=config_path,
         test_mode=test_mode,
+        output_resolution=job.get("resolution", config.get("render", {}).get("resolution", [1920, 1080])),
     )
     if exported:
         print(f"[job] Done: {exported}")

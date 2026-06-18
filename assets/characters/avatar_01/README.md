@@ -1,13 +1,16 @@
 # Avatar 01
 
-Place the prepared stylized avatar assets for `avatar_01` here.
+Place the prepared stylized news-anchor avatar assets for `avatar_01` here.
 
 Expected Blender scene object names for the MVP:
 
-- `FACE_Surface` for 2D mouth cue keyframes.
+- `FACE_Backdrop` for the face display/backing surface.
+- `FACE_Surface` for 2D mouth texture swaps.
 - An avatar mesh with shape keys for 3D mouth and expression animation.
 - An armature with common seated character bones for placeholder gestures.
 - Cameras named `CAM_Portrait_Main`, `CAM_Landscape_Intro`, and `CAM_Landscape_Conclusion`.
+
+See `docs/BLENDER_SCENE_GUIDE.md` for the full production scene contract.
 
 ## 2D Mouth Textures
 

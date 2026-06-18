@@ -286,7 +286,7 @@ def write_manifest(path: Path, data: dict[str, Any]) -> None:
         handle.write("\n")
 
 
-def print_status_report(analysis: dict[str, Any], flags: dict[str, bool]) -> None:
+def print_status_report(analysis: dict[str, Any], flags: dict[str, bool], job_path: Path | None = None) -> None:
     labels = (
         ("tts", "TTS"),
         ("lipsync", "Lipsync"),
@@ -311,7 +311,8 @@ def print_status_report(analysis: dict[str, Any], flags: dict[str, bool]) -> Non
             action = "skip requested"
         print(f"[status] {label}: {status} ({detail}); planned: {action}")
 
+    command_job = str(job_path) if job_path is not None else "jobs/sample_job.json"
     if any(status != "fresh" for status in analysis["statuses"].values()):
-        print("[status] Recommended command: python scripts/run_job.py jobs/sample_job.json --force-all")
+        print(f"[status] Recommended command: python scripts/run_job.py {command_job} --force-all")
     else:
-        print("[status] Recommended command: python scripts/run_job.py jobs/sample_job.json")
+        print(f"[status] Recommended command: python scripts/run_job.py {command_job}")

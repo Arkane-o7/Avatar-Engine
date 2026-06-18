@@ -18,6 +18,7 @@ def export_video(
     fps: int,
     config_path: Path,
     test_mode: bool = False,
+    output_resolution: list[int] | tuple[int, int] | None = None,
 ) -> Path | None:
     frames = sorted(render_dir.glob("frame_*.png"))
     if not frames:
@@ -52,15 +53,27 @@ def export_video(
         frame_pattern(render_dir),
         "-i",
         str(audio_wav),
-        "-c:v",
-        "libx264",
-        "-pix_fmt",
-        "yuv420p",
-        "-c:a",
-        "aac",
-        "-shortest",
-        str(output_mp4),
     ]
+    if output_resolution is not None:
+        width, height = [int(value) for value in output_resolution]
+        video_filter = (
+            f"scale={width}:{height}:force_original_aspect_ratio=decrease:eval=frame,"
+            f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black:eval=frame,"
+            "setsar=1"
+        )
+        command.extend(["-vf", video_filter])
+    command.extend(
+        [
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            "-shortest",
+            str(output_mp4),
+        ]
+    )
     print(f"[export] Running FFmpeg export: {output_mp4}")
     subprocess.run(command, check=True)
     print(f"[export] Final video: {output_mp4}")
