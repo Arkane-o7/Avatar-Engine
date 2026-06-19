@@ -11,7 +11,7 @@ Typical channel flow:
 3. Choose camera cuts and basic gestures.
 4. Write a `jobs/<job_id>.json` file.
 5. Run `scripts/run_job.py`.
-6. Hand `assets/output/<job_id>.mp4` to the episode compositor/editor.
+6. Hand the generated MP4 or native camera-clip folder to the episode compositor/editor.
 
 This repo owns only the anchor-render stage. It does not fetch news, decide editorial content, publish videos, or call cloud TTS APIs.
 
@@ -33,6 +33,12 @@ Final-quality anchor segment:
 
 ```bash
 python3 scripts/run_job.py jobs/news_anchor_segment.json --force-all
+```
+
+Native portrait/landscape clip export for downstream editing:
+
+```bash
+python3 scripts/run_job.py jobs/news_anchor_native_segments.json --force-all
 ```
 
 Check what would be reused or regenerated:
@@ -64,6 +70,8 @@ Common optional fields:
 - `disable_shadows`: use only for throwaway previews.
 - `camera_resolution_scale`: multiplies each template camera's saved per-camera resolution.
 - `use_per_camera_resolution`: defaults to `true`; keep it true for mixed portrait/landscape camera framing.
+- `export_mode`: `"combined"` or `"native_segments"`.
+- `segment_output_dir`: output folder for native segment clips.
 
 ## Camera Semantics
 
@@ -79,7 +87,70 @@ These map to Blender objects:
 - `CAM_Portrait_Main`
 - `CAM_Landscape_Conclusion`
 
-The Blender template uses the Per-Camera Resolution addon. The runner preserves each camera's aspect ratio and then pads/scales frames into the job's final MP4 canvas, so portrait shots are centered instead of cropped.
+The Blender template uses the Per-Camera Resolution addon. The runner preserves each camera's aspect ratio during render.
+
+## Export Modes
+
+Use `combined` for quick review videos:
+
+```json
+"export_mode": "combined",
+"output_path": "assets/output/news_anchor_preview.mp4"
+```
+
+This creates one MP4. Portrait frames are padded into the final landscape canvas, so this mode is convenient for preview but less ideal for editing.
+
+Use `native_segments` when this repo acts as a backend for another editing/compositing project:
+
+```json
+"export_mode": "native_segments",
+"segment_output_dir": "assets/output/news_anchor_native_segments",
+"output_path": "assets/output/news_anchor_native_segments.mp4"
+```
+
+This writes one MP4 per camera cut and preserves each cut's native aspect ratio:
+
+```text
+assets/output/news_anchor_native_segments/
+  001_landscape_intro.mp4
+  002_portrait_main.mp4
+  003_landscape_conclusion.mp4
+  edit_manifest.json
+```
+
+The segment `edit_manifest.json` records the camera name, time range, frame range, clip duration, source resolution, and clip path. Downstream tools should consume this folder instead of a black-barred combined preview.
+
+## Demo Jobs
+
+The combined preview demo is for quick human review:
+
+```bash
+python3 scripts/run_job.py jobs/news_anchor_preview.json --force-all
+```
+
+It writes:
+
+```text
+assets/output/news_anchor_preview.mp4
+```
+
+The native segment demo is for backend/editor integration:
+
+```bash
+python3 scripts/run_job.py jobs/news_anchor_native_segments.json --force-all
+```
+
+It writes:
+
+```text
+assets/output/news_anchor_native_segments/
+  001_landscape_intro.mp4
+  002_portrait_main.mp4
+  003_landscape_conclusion.mp4
+  edit_manifest.json
+```
+
+The expected demo dimensions are `1920x1080` for landscape clips and `900x1328` for the portrait clip with the current template/camera scale. Generated demo videos are local build artifacts and should be regenerated, not committed.
 
 ## Preview Vs Final
 
@@ -119,6 +190,8 @@ assets/temp/<job_id>/run_manifest.json
 ```
 
 The manifest records hashes, durations, frame counts, stale status, render paths, output paths, and the Blender template mtime.
+
+For `native_segments` jobs, the manifest records the segment folder and all exported clip artifacts.
 
 ## Safety Rules
 

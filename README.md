@@ -11,7 +11,8 @@ This is intentionally not a photorealistic MetaHuman pipeline and does not use c
 - `blender/avatar_template.blend` is the production scene. Runtime scripts load it only and must not overwrite it.
 - 2D face mode uses `FACE_Backdrop` and `FACE_Surface`; Rhubarb cues swap mouth PNG textures on `FACE_Surface`.
 - Camera jobs use semantic POVs: `landscape_intro`, `portrait_main`, and `landscape_conclusion`.
-- The Blender template can preserve per-camera aspect ratios; FFmpeg fits mixed portrait/landscape frames into the final MP4 canvas without cropping.
+- The Blender template can preserve per-camera aspect ratios.
+- Export supports either one combined preview MP4 or separate native-aspect camera clips for downstream editing.
 - Preview mode can render very quickly with draft settings; final mode keeps lighting/shadows for publishable segments.
 
 ## Documentation
@@ -35,6 +36,12 @@ Output:
 
 ```text
 assets/output/<job_id>.mp4
+```
+
+Native segment jobs output a folder instead:
+
+```text
+assets/output/<job_id>/
 ```
 
 Pipeline:
@@ -61,6 +68,12 @@ Fast preview:
 python3 scripts/run_job.py jobs/news_anchor_preview.json --force-all
 ```
 
+Backend/editor segment export:
+
+```bash
+python3 scripts/run_job.py jobs/news_anchor_native_segments.json --force-all
+```
+
 Final-quality segment:
 
 ```bash
@@ -72,6 +85,44 @@ Check stale/reuse status:
 ```bash
 python3 scripts/run_job.py jobs/news_anchor_segment.json --status
 ```
+
+## Demo Outputs
+
+Generate the quick combined demo:
+
+```bash
+python3 scripts/run_job.py jobs/news_anchor_preview.json --force-all
+```
+
+This writes:
+
+```text
+assets/output/news_anchor_preview.mp4
+```
+
+Generate the backend/editor demo with separate native camera clips:
+
+```bash
+python3 scripts/run_job.py jobs/news_anchor_native_segments.json --force-all
+```
+
+This writes:
+
+```text
+assets/output/news_anchor_native_segments/
+  001_landscape_intro.mp4
+  002_portrait_main.mp4
+  003_landscape_conclusion.mp4
+  edit_manifest.json
+```
+
+Expected demo clip shapes:
+
+- `001_landscape_intro.mp4`: landscape, `1920x1080`
+- `002_portrait_main.mp4`: portrait, `900x1328`
+- `003_landscape_conclusion.mp4`: landscape, `1920x1080`
+
+Generated demo videos are build artifacts and are not committed. Regenerate them locally when needed.
 
 ## Required Tools
 
@@ -239,7 +290,7 @@ Use `--force-all` when you want a clean dependency-respecting rebuild of generat
 python3 scripts/run_job.py jobs/sample_job.json --force-all
 ```
 
-Stage-specific force flags are also available: `--force-tts`, `--force-lipsync`, `--force-render`, and `--force-export`. Force flags regenerate that stage even if a skip flag was passed. `--clean` removes only this job's generated temp folder, render folder, and output MP4 before running.
+Stage-specific force flags are also available: `--force-tts`, `--force-lipsync`, `--force-render`, and `--force-export`. Force flags regenerate that stage even if a skip flag was passed. `--clean` removes only this job's generated temp folder, render folder, and generated output MP4 or segment folder before running.
 
 ## News Anchor Cameras
 
@@ -255,7 +306,36 @@ They map to:
 - `CAM_Portrait_Main`
 - `CAM_Landscape_Conclusion`
 
-The production template uses per-camera resolution settings. Keep that enabled for mixed POV jobs so portrait shots keep their vertical framing. The exporter scales and pads frames into the job's final canvas instead of cropping them.
+The production template uses per-camera resolution settings. Keep that enabled for mixed POV jobs so portrait shots keep their vertical framing.
+
+## Export Modes
+
+The default export mode is `combined`. It creates one MP4 at `output_path`. When the job mixes landscape and portrait cameras, FFmpeg scales and pads each frame into the job's final canvas instead of cropping it. This is convenient for quick previews and human review.
+
+```json
+"export_mode": "combined",
+"output_path": "assets/output/news_anchor_preview.mp4"
+```
+
+For backend use in another editor/compositor project, prefer `native_segments`. It exports one MP4 per camera cut at that cut's native camera aspect ratio, plus an `edit_manifest.json` describing the timeline.
+
+```json
+"export_mode": "native_segments",
+"segment_output_dir": "assets/output/news_anchor_native_segments",
+"output_path": "assets/output/news_anchor_native_segments.mp4"
+```
+
+The `output_path` field remains required for compatibility. In `native_segments` mode, `segment_output_dir` is the folder consumed by the downstream project:
+
+```text
+assets/output/news_anchor_native_segments/
+  001_landscape_intro.mp4
+  002_portrait_main.mp4
+  003_landscape_conclusion.mp4
+  edit_manifest.json
+```
+
+Use `native_segments` when this repo is acting as a backend for another project. It gives the editor/compositor clean portrait and landscape clips without black bars baked into the video.
 
 For final quality, use `camera_resolution_scale` to render camera POVs at higher resolution while preserving their aspect ratio:
 
@@ -376,11 +456,14 @@ assets/temp/<job_id>/run_manifest.json
 
 The manifest records the job/config/script hashes, TTS engine used, audio hash and duration, mouth cue hash and duration, expected and actual frame counts, render and output paths, output duration, Blender template path and mtime, run timestamp, stale status, and the CLI flags used. The runner uses this manifest plus file mtimes/counts/durations to warn about stale audio, mouth cues, render frames, and MP4s.
 
+For `native_segments` jobs, the run manifest also records `export_mode`, the segment folder path, the segment clip paths, and the segment `edit_manifest.json` path.
+
 These generated folders, media files, `.DS_Store`, `__pycache__`, and virtual environments should not be committed. Source files, jobs, config, character assets, mouth textures, and `blender/avatar_template.blend` are not deleted by `run_job.py`.
 
 ## Sample Jobs
 
 - `jobs/news_anchor_preview.json`: fast news-anchor preview job.
+- `jobs/news_anchor_native_segments.json`: fast backend sample that exports native portrait/landscape clips.
 - `jobs/news_anchor_segment.json`: final-quality news-anchor segment sample.
 - `jobs/sample_job.json`: full default sample.
 - `jobs/sample_short_test.json`: short smoke test.

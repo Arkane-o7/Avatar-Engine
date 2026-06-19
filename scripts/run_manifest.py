@@ -70,7 +70,7 @@ def oldest_mtime(paths: list[Path]) -> float | None:
 
 
 def output_duration(path: Path, ffmpeg_name: str | None = None) -> float | None:
-    if not path.exists():
+    if not path.exists() or not path.is_file():
         return None
     ffprobe = resolve_tool("ffprobe")
     if ffprobe is None and ffmpeg_name:
@@ -105,6 +105,40 @@ def output_duration(path: Path, ffmpeg_name: str | None = None) -> float | None:
         return None
 
 
+def job_export_mode(job: dict[str, Any]) -> str:
+    return str(job.get("export_mode", "combined")).strip().lower()
+
+
+def expected_native_segment_count(job: dict[str, Any]) -> int:
+    cuts = job.get("camera_cuts", [])
+    return len(cuts) if isinstance(cuts, list) and cuts else 1
+
+
+def native_edit_manifest_path(output_path: Path) -> Path:
+    return output_path / "edit_manifest.json"
+
+
+def output_artifact_paths(job: dict[str, Any], output_path: Path) -> list[Path]:
+    if job_export_mode(job) == "native_segments":
+        if not output_path.exists() or not output_path.is_dir():
+            return []
+        return sorted(output_path.glob("*.mp4")) + [native_edit_manifest_path(output_path)]
+    return [output_path] if output_path.exists() and output_path.is_file() else []
+
+
+def output_artifacts_duration(paths: list[Path], ffmpeg_name: str | None = None) -> float | None:
+    durations: list[float] = []
+    videos = [path for path in paths if path.suffix.lower() == ".mp4"]
+    if not videos:
+        return None
+    for path in videos:
+        duration = output_duration(path, ffmpeg_name)
+        if duration is None:
+            return None
+        durations.append(duration)
+    return sum(durations)
+
+
 def analyze_outputs(
     *,
     job: dict[str, Any],
@@ -125,15 +159,20 @@ def analyze_outputs(
     job_hash = sha256_file(job_path)
     config_hash = sha256_file(config_path)
     previous = load_manifest(manifest_path)
+    export_mode = job_export_mode(job)
 
     audio_duration = wav_duration_seconds(audio_path) if audio_path.exists() else None
     cue_duration = mouth_duration(mouth_path)
     expected_frames = frame_count_for_duration(cue_duration or audio_duration, fps)
     frames = frame_files(render_dir)
+    output_artifacts = output_artifact_paths(job, output_path)
     output_video_duration = None
     if probe_output:
         ffmpeg_name = str(config.get("tools", {}).get("ffmpeg", "ffmpeg"))
-        output_video_duration = output_duration(output_path, ffmpeg_name)
+        if export_mode == "native_segments":
+            output_video_duration = output_artifacts_duration(output_artifacts, ffmpeg_name)
+        else:
+            output_video_duration = output_duration(output_path, ffmpeg_name)
     elif previous.get("output_video_path") == str(output_path) and output_path.exists():
         try:
             output_video_duration = float(previous["output_video_duration"])
@@ -179,11 +218,29 @@ def analyze_outputs(
         reasons["render"].append(f"rendered frame count {len(frames)} != expected {expected_frames}")
     reasons["render"].extend(changed_inputs)
 
-    if not output_path.exists():
+    if export_mode == "native_segments":
+        edit_manifest = native_edit_manifest_path(output_path)
+        segment_videos = [path for path in output_artifacts if path.suffix.lower() == ".mp4"]
+        if not output_path.exists():
+            reasons["export"].append("native segment output folder missing")
+        elif not output_path.is_dir():
+            reasons["export"].append("native segment output path is not a folder")
+        if output_path.exists() and output_path.is_dir() and not edit_manifest.exists():
+            reasons["export"].append("native segment edit manifest missing")
+        if output_path.exists() and output_path.is_dir() and not segment_videos:
+            reasons["export"].append("native segment MP4s missing")
+        expected_segments = expected_native_segment_count(job)
+        if segment_videos and len(segment_videos) != expected_segments:
+            reasons["export"].append(f"native segment count {len(segment_videos)} != expected {expected_segments}")
+    elif not output_path.exists():
         reasons["export"].append("output video missing")
     frame_newest = newest_mtime(frames)
-    if output_path.exists() and frame_newest is not None and frame_newest > output_path.stat().st_mtime:
-        reasons["export"].append("output video older than rendered frames")
+    output_newest = newest_mtime(output_artifacts)
+    if frame_newest is not None and output_newest is not None and frame_newest > output_newest:
+        if export_mode == "native_segments":
+            reasons["export"].append("native segment outputs older than rendered frames")
+        else:
+            reasons["export"].append("output video older than rendered frames")
     if output_video_duration is not None and audio_duration is not None:
         if math.fabs(output_video_duration - audio_duration) > STALE_DURATION_TOLERANCE_SECONDS:
             reasons["export"].append(
@@ -214,6 +271,9 @@ def analyze_outputs(
         "actual_frame_count": len(frames),
         "first_frame": frames[0] if frames else None,
         "last_frame": frames[-1] if frames else None,
+        "export_mode": export_mode,
+        "output_artifacts": output_artifacts,
+        "edit_manifest": native_edit_manifest_path(output_path) if export_mode == "native_segments" else None,
         "output_duration": output_video_duration,
         "template_mtime": template_path.stat().st_mtime if template_path.exists() else None,
     }
@@ -268,8 +328,11 @@ def manifest_data(
         "first_rendered_frame_path": str(analysis["first_frame"]) if analysis["first_frame"] else None,
         "last_rendered_frame_path": str(analysis["last_frame"]) if analysis["last_frame"] else None,
         "render_folder_path": str(render_dir),
+        "export_mode": analysis["export_mode"],
         "output_video_path": str(output_path),
         "output_video_duration": analysis["output_duration"],
+        "output_artifacts": [str(path) for path in analysis["output_artifacts"]],
+        "edit_manifest_path": str(analysis["edit_manifest"]) if analysis["edit_manifest"] else None,
         "blender_template_path": str(template_path),
         "blender_template_mtime": analysis["template_mtime"],
         "timestamp": datetime.now(timezone.utc).isoformat(),

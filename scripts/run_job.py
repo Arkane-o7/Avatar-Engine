@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from export_video import export_video
+from export_video import export_native_segments, export_video
 from generate_lipsync import generate_lipsync, wav_duration_seconds
 from generate_tts import generate_tts_result
 from run_manifest import analyze_outputs, manifest_data, print_status_report, write_manifest
@@ -59,7 +59,35 @@ def ensure_inside(path: Path, allowed_parent: Path) -> None:
         raise ValueError(f"Refusing to clean path outside generated folder: {path}")
 
 
-def clean_generated_outputs(root: Path, temp_dir: Path, render_dir: Path, output_path: Path) -> None:
+def export_mode(job: dict[str, Any]) -> str:
+    return str(job.get("export_mode", "combined")).strip().lower()
+
+
+def resolve_export_target_path(root: Path, job: dict[str, Any], output_path: Path) -> Path:
+    mode = export_mode(job)
+    if mode == "combined":
+        return output_path
+    if mode == "native_segments":
+        configured_dir = job.get("segment_output_dir")
+        if configured_dir:
+            return resolve_project_path(root, str(configured_dir))
+        return output_path.with_suffix("") if output_path.suffix else output_path
+    raise ValueError("Job field 'export_mode' must be 'combined' or 'native_segments'.")
+
+
+def unique_paths(paths: list[Path]) -> list[Path]:
+    seen: set[Path] = set()
+    unique: list[Path] = []
+    for path in paths:
+        resolved = path.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        unique.append(path)
+    return unique
+
+
+def clean_generated_outputs(root: Path, temp_dir: Path, render_dir: Path, output_paths: list[Path]) -> None:
     generated_roots = {
         "temp": root / "assets" / "temp",
         "renders": root / "assets" / "renders",
@@ -73,10 +101,14 @@ def clean_generated_outputs(root: Path, temp_dir: Path, render_dir: Path, output
             shutil.rmtree(folder)
         folder.mkdir(parents=True, exist_ok=True)
 
-    ensure_inside(output_path, generated_roots["output"])
-    if output_path.exists():
-        print(f"[clean] Removing generated output file: {output_path}")
-        output_path.unlink()
+    for output_path in unique_paths(output_paths):
+        ensure_inside(output_path, generated_roots["output"])
+        if output_path.is_dir():
+            print(f"[clean] Removing generated output folder: {output_path}")
+            shutil.rmtree(output_path)
+        elif output_path.exists():
+            print(f"[clean] Removing generated output file: {output_path}")
+            output_path.unlink()
 
 
 def clear_render_frames(root: Path, render_dir: Path) -> None:
@@ -211,6 +243,7 @@ def run_pipeline(
     temp_dir = root / "assets" / "temp" / job_id
     render_dir = root / "assets" / "renders" / job_id
     output_path = resolve_project_path(root, str(job["output_path"]))
+    output_target_path = resolve_export_target_path(root, job, output_path)
     audio_path = temp_dir / "audio.wav"
     mouth_path = temp_dir / "mouth_cues.json"
     manifest_path = temp_dir / "run_manifest.json"
@@ -251,7 +284,7 @@ def run_pipeline(
         audio_path=audio_path,
         mouth_path=mouth_path,
         render_dir=render_dir,
-        output_path=output_path,
+        output_path=output_target_path,
         template_path=template_path,
         config=config,
         probe_output=False,
@@ -264,7 +297,7 @@ def run_pipeline(
     create_job_folders(root, job_id)
 
     if clean:
-        clean_generated_outputs(root, temp_dir, render_dir, output_path)
+        clean_generated_outputs(root, temp_dir, render_dir, [output_path, output_target_path])
 
     print(f"[job] Starting '{job_id}'")
     print(f"[job] Test mode: {'on' if test_mode else 'off'}")
@@ -286,7 +319,8 @@ def run_pipeline(
         print("[job] Keep temp: on")
     print(f"[job] Temp: {temp_dir}")
     print(f"[job] Renders: {render_dir}")
-    print(f"[job] Output: {output_path}")
+    print(f"[job] Export mode: {export_mode(job)}")
+    print(f"[job] Output: {output_target_path}")
 
     tts_engine_used = previous_tts_engine(initial_analysis.get("previous_manifest", {}))
     if skip_tts:
@@ -307,7 +341,7 @@ def run_pipeline(
         audio_path=audio_path,
         mouth_path=mouth_path,
         render_dir=render_dir,
-        output_path=output_path,
+        output_path=output_target_path,
         template_path=template_path,
         config=config,
         probe_output=False,
@@ -329,7 +363,7 @@ def run_pipeline(
         audio_path=audio_path,
         mouth_path=mouth_path,
         render_dir=render_dir,
-        output_path=output_path,
+        output_path=output_target_path,
         template_path=template_path,
         config=config,
         probe_output=False,
@@ -355,7 +389,7 @@ def run_pipeline(
         audio_path=audio_path,
         mouth_path=mouth_path,
         render_dir=render_dir,
-        output_path=output_path,
+        output_path=output_target_path,
         template_path=template_path,
         config=config,
         probe_output=False,
@@ -374,7 +408,7 @@ def run_pipeline(
                 audio_path=audio_path,
                 mouth_path=mouth_path,
                 render_dir=render_dir,
-                output_path=output_path,
+                output_path=output_target_path,
                 template_path=template_path,
                 config=config,
                 flags=flags,
@@ -384,15 +418,26 @@ def run_pipeline(
         print(f"[manifest] Wrote run manifest: {manifest_path}")
         return None
 
-    exported = export_video(
-        render_dir=render_dir,
-        audio_wav=audio_path,
-        output_mp4=output_path,
-        fps=fps,
-        config_path=config_path,
-        test_mode=test_mode,
-        output_resolution=job.get("resolution", config.get("render", {}).get("resolution", [1920, 1080])),
-    )
+    if export_mode(job) == "native_segments":
+        exported = export_native_segments(
+            render_dir=render_dir,
+            audio_wav=audio_path,
+            output_dir=output_target_path,
+            fps=fps,
+            config_path=config_path,
+            job=job,
+            test_mode=test_mode,
+        )
+    else:
+        exported = export_video(
+            render_dir=render_dir,
+            audio_wav=audio_path,
+            output_mp4=output_path,
+            fps=fps,
+            config_path=config_path,
+            test_mode=test_mode,
+            output_resolution=job.get("resolution", config.get("render", {}).get("resolution", [1920, 1080])),
+        )
     if exported:
         print(f"[job] Done: {exported}")
     else:
@@ -407,7 +452,7 @@ def run_pipeline(
             audio_path=audio_path,
             mouth_path=mouth_path,
             render_dir=render_dir,
-            output_path=output_path,
+            output_path=output_target_path,
             template_path=template_path,
             config=config,
             flags=flags,

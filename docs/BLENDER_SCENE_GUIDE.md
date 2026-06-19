@@ -42,7 +42,9 @@ Camera jobs use semantic names:
 
 The template currently uses the Per-Camera Resolution addon. Keep each camera's custom resolution set to the framing it is designed for. For example, landscape cameras can be `16:9`, while the portrait camera can stay vertical.
 
-The runner renders frames per camera and exports them into one final MP4 canvas. If the MP4 is landscape, portrait frames are centered with side padding instead of cropped.
+The runner renders frames per camera. In `combined` export mode, portrait frames are centered with side padding inside one final MP4 canvas. In `native_segments` export mode, each camera cut becomes its own MP4 at the camera's native aspect ratio, which is better for downstream editing and FFmpeg stitching.
+
+With the current demo template settings, the native segment sample writes `1920x1080` landscape clips and a `900x1328` portrait clip. These dimensions come from the template camera resolution settings plus `camera_resolution_scale`.
 
 ## Face Objects
 

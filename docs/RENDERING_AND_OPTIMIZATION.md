@@ -44,6 +44,14 @@ Do not set `disable_shadows` for final renders.
 
 `camera_resolution_scale` multiplies each Blender camera's saved per-camera resolution. If the template camera is `960x540`, a scale of `2.0` renders that camera as `1920x1080`. If the portrait camera is `450x664`, a scale of `2.0` renders it as `900x1328`, then FFmpeg fits it into the final MP4 canvas with padding.
 
+For backend/editor use, prefer:
+
+```json
+"export_mode": "native_segments"
+```
+
+This avoids baking black bars into portrait shots. Each camera cut is exported as its own MP4, so downstream FFmpeg, Premiere, DaVinci, or compositor workflows can place portrait and landscape clips independently.
+
 ## Decrease Polygon Count
 
 For background models:
