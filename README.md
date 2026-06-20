@@ -13,6 +13,7 @@ This is intentionally not a photorealistic MetaHuman pipeline and does not use c
 - Camera jobs use semantic POVs: `landscape_intro`, `portrait_main`, and `landscape_conclusion`.
 - The Blender template can preserve per-camera aspect ratios.
 - Export supports either one combined preview MP4 or separate native-aspect camera clips for downstream editing.
+- Render profiles keep preview and production settings consistent across jobs.
 - Preview mode can render very quickly with draft settings; final mode keeps lighting/shadows for publishable segments.
 
 ## Documentation
@@ -167,6 +168,21 @@ tts:
   speed: 1.0
   sample_rate: 24000
   lang_code: a
+
+render_profiles:
+  preview:
+    fps: 12
+    resolution: [960, 540]
+    render_quality: draft
+    render_samples: 4
+    disable_shadows: true
+    camera_resolution_scale: 1.0
+    export_mode: combined
+  production:
+    fps: 24
+    resolution: [1920, 1080]
+    camera_resolution_scale: 2.0
+    export_mode: native_segments
 ```
 
 Each value can be either a command available on `PATH` or an absolute path to the binary.
@@ -337,7 +353,37 @@ assets/output/news_anchor_native_segments/
 
 Use `native_segments` when this repo is acting as a backend for another project. It gives the editor/compositor clean portrait and landscape clips without black bars baked into the video.
 
-For final quality, use `camera_resolution_scale` to render camera POVs at higher resolution while preserving their aspect ratio:
+## Render Profiles
+
+Jobs can use a render profile from `config/default.yaml`:
+
+```json
+"render_profile": "preview"
+```
+
+Profiles fill in render/export defaults before the job is validated and before Blender runs. Job fields still win over profile fields, so a job can override a specific setting when needed.
+
+Built-in profiles:
+
+- `preview`: fast draft mode, `12 fps`, `960x540`, low samples, shadows disabled, `combined` MP4 export.
+- `production`: final-news mode, `24 fps`, `1920x1080`, higher camera scale, `native_segments` export.
+
+With the current template camera settings, `production` renders native segment clips around `3840x2160` for landscape cameras and `1800x2656` for the portrait camera. Use `preview` for iteration and `production` only when you are ready for the backend/editor-quality output.
+
+For the automated news backend, use `production` as the normal path:
+
+```json
+"render_profile": "production",
+"segment_output_dir": "assets/output/news_anchor_segment"
+```
+
+The runner writes the merged job used by Blender to:
+
+```text
+assets/temp/<job_id>/effective_job.json
+```
+
+Profiles already set common resolution and quality values. When you need a one-off override, use `camera_resolution_scale` to render camera POVs at higher resolution while preserving their aspect ratio:
 
 ```json
 "resolution": [1920, 1080],
@@ -456,7 +502,7 @@ assets/temp/<job_id>/run_manifest.json
 
 The manifest records the job/config/script hashes, TTS engine used, audio hash and duration, mouth cue hash and duration, expected and actual frame counts, render and output paths, output duration, Blender template path and mtime, run timestamp, stale status, and the CLI flags used. The runner uses this manifest plus file mtimes/counts/durations to warn about stale audio, mouth cues, render frames, and MP4s.
 
-For `native_segments` jobs, the run manifest also records `export_mode`, the segment folder path, the segment clip paths, and the segment `edit_manifest.json` path.
+For `native_segments` jobs, the run manifest also records `render_profile`, `export_mode`, the segment folder path, the segment clip paths, and the segment `edit_manifest.json` path.
 
 These generated folders, media files, `.DS_Store`, `__pycache__`, and virtual environments should not be committed. Source files, jobs, config, character assets, mouth textures, and `blender/avatar_template.blend` are not deleted by `run_job.py`.
 

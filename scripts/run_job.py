@@ -11,7 +11,7 @@ from export_video import export_native_segments, export_video
 from generate_lipsync import generate_lipsync, wav_duration_seconds
 from generate_tts import generate_tts_result
 from run_manifest import analyze_outputs, manifest_data, print_status_report, write_manifest
-from utils import create_placeholder_frames, load_config, load_json, resolve_project_path, resolve_tool
+from utils import create_placeholder_frames, load_config, load_json, resolve_project_path, resolve_tool, write_json
 
 
 REQUIRED_JOB_FIELDS = {
@@ -41,6 +41,34 @@ def validate_job(job: dict[str, Any], job_path: Path, root: Path) -> None:
     character_dir = root / "assets" / "characters" / str(job["character"])
     if not character_dir.exists():
         raise FileNotFoundError(f"Character folder not found: {character_dir}")
+
+
+def merge_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = merge_dicts(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def apply_render_profile(job: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
+    profile_name = str(job.get("render_profile", "")).strip()
+    if not profile_name:
+        return dict(job)
+
+    profiles = config.get("render_profiles", {})
+    if not isinstance(profiles, dict):
+        raise ValueError("Config field 'render_profiles' must be a mapping.")
+    profile = profiles.get(profile_name)
+    if not isinstance(profile, dict):
+        available = ", ".join(sorted(str(name) for name in profiles)) or "<none>"
+        raise ValueError(f"Unknown render_profile '{profile_name}'. Available profiles: {available}")
+
+    merged = merge_dicts(profile, job)
+    merged["render_profile"] = profile_name
+    return merged
 
 
 def create_job_folders(root: Path, job_id: str) -> tuple[Path, Path, Path]:
@@ -236,7 +264,8 @@ def run_pipeline(
     test_mode = test_mode or bool(config.get("test_mode", False))
 
     print(f"[job] Loading job: {job_path}")
-    job = load_json(job_path)
+    source_job = load_json(job_path)
+    job = apply_render_profile(source_job, config)
     validate_job(job, job_path, root)
 
     job_id = str(job["job_id"])
@@ -244,6 +273,7 @@ def run_pipeline(
     render_dir = root / "assets" / "renders" / job_id
     output_path = resolve_project_path(root, str(job["output_path"]))
     output_target_path = resolve_export_target_path(root, job, output_path)
+    effective_job_path = temp_dir / "effective_job.json"
     audio_path = temp_dir / "audio.wav"
     mouth_path = temp_dir / "mouth_cues.json"
     manifest_path = temp_dir / "run_manifest.json"
@@ -299,6 +329,8 @@ def run_pipeline(
     if clean:
         clean_generated_outputs(root, temp_dir, render_dir, [output_path, output_target_path])
 
+    write_json(effective_job_path, job)
+
     print(f"[job] Starting '{job_id}'")
     print(f"[job] Test mode: {'on' if test_mode else 'off'}")
     print(
@@ -319,6 +351,8 @@ def run_pipeline(
         print("[job] Keep temp: on")
     print(f"[job] Temp: {temp_dir}")
     print(f"[job] Renders: {render_dir}")
+    if job.get("render_profile"):
+        print(f"[job] Render profile: {job['render_profile']}")
     print(f"[job] Export mode: {export_mode(job)}")
     print(f"[job] Output: {output_target_path}")
 
@@ -330,7 +364,7 @@ def run_pipeline(
             raise FileNotFoundError(f"--skip-tts requested but audio file is missing: {audio_path}")
         print(f"[tts] Skipping TTS; using existing audio: {audio_path}")
     else:
-        tts_result = generate_tts_result(job_path, audio_path, config_path=config_path, test_mode=test_mode)
+        tts_result = generate_tts_result(effective_job_path, audio_path, config_path=config_path, test_mode=test_mode)
         tts_engine_used = tts_result.engine_used
 
     after_tts_analysis = analyze_outputs(
@@ -372,7 +406,7 @@ def run_pipeline(
         warn_stage("render", after_lipsync_analysis["reasons"]["render"])
         warn_if_reusing_stale_frames(render_dir, mouth_path)
     else:
-        run_blender(root, job_path, job, config, render_dir, mouth_path, test_mode=test_mode)
+        run_blender(root, effective_job_path, job, config, render_dir, mouth_path, test_mode=test_mode)
 
     fps = int(job.get("fps", 30))
     try:

@@ -20,27 +20,22 @@ Heavy props, high-poly models, complex materials, shadows, GI, volumetrics, refl
 Use these only for iteration:
 
 ```json
-"fps": 12,
-"resolution": [960, 540],
-"render_quality": "draft",
-"render_samples": 4,
-"disable_shadows": true,
-"camera_resolution_scale": 1.0
+"render_profile": "preview"
 ```
 
-Preview renders are intentionally flat because shadows and expensive lighting are disabled.
+The preview profile sets `12 fps`, `960x540`, low samples, draft mode, disabled shadows, and combined MP4 export. Preview renders are intentionally flat because shadows and expensive lighting are disabled.
 
 ## Final Render Settings
 
 Use these for the final anchor segment:
 
 ```json
-"fps": 24,
-"resolution": [1920, 1080],
-"camera_resolution_scale": 2.0
+"render_profile": "production"
 ```
 
-Do not set `disable_shadows` for final renders.
+The production profile sets `24 fps`, `1920x1080`, higher camera resolution scale, and native segment export. Do not set `disable_shadows` for final renders.
+
+With the current template camera settings, the production profile renders native segments at about `3840x2160` for landscape cameras and `1800x2656` for the portrait camera. That is intentionally higher quality, but it is much slower than preview mode. Use `preview` while iterating on script, timing, mouth sync, and camera cuts.
 
 `camera_resolution_scale` multiplies each Blender camera's saved per-camera resolution. If the template camera is `960x540`, a scale of `2.0` renders that camera as `1920x1080`. If the portrait camera is `450x664`, a scale of `2.0` renders it as `900x1328`, then FFmpeg fits it into the final MP4 canvas with padding.
 

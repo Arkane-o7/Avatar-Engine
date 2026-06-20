@@ -65,7 +65,23 @@ def add_audio_to_timeline(audio_path: Path) -> None:
 
 def configure_per_camera_resolution(job: dict[str, Any], width: int, height: int, percentage: int = 100) -> None:
     if bool(job.get("use_per_camera_resolution", True)):
-        print("[blender] Keeping template per-camera resolution settings.")
+        scale = max(0.01, float(job.get("camera_resolution_scale", 1.0)))
+        if scale == 1.0:
+            print("[blender] Keeping template per-camera resolution settings.")
+            return
+
+        updated = 0
+        for obj in bpy.data.objects:
+            if getattr(obj, "type", "") != "CAMERA":
+                continue
+            camera_data = getattr(obj, "data", None)
+            props = getattr(camera_data, "per_camera_resolution", None)
+            if props is None or not bool(props.use_custom_resolution):
+                continue
+            props.resolution_x = max(1, int(round(float(props.resolution_x) * scale)))
+            props.resolution_y = max(1, int(round(float(props.resolution_y) * scale)))
+            updated += 1
+        print(f"[blender] Scaled template per-camera resolution settings by {scale:g} for {updated} camera(s).")
         return
 
     updated = 0
@@ -374,9 +390,8 @@ def apply_camera_resolution(job: dict[str, Any], scene: Any) -> tuple[int, int, 
     if use_per_camera_resolution and scene.camera is not None:
         props = getattr(getattr(scene.camera, "data", None), "per_camera_resolution", None)
         if props is not None and bool(props.use_custom_resolution):
-            scale = max(0.01, float(job.get("camera_resolution_scale", 1.0)))
-            scene.render.resolution_x = max(1, int(round(float(props.resolution_x) * scale)))
-            scene.render.resolution_y = max(1, int(round(float(props.resolution_y) * scale)))
+            scene.render.resolution_x = int(props.resolution_x)
+            scene.render.resolution_y = int(props.resolution_y)
             scene.render.resolution_percentage = int(props.resolution_percentage)
             scene.render.pixel_aspect_x = float(props.pixel_aspect_x)
             scene.render.pixel_aspect_y = float(props.pixel_aspect_y)

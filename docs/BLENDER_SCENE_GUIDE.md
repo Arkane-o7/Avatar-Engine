@@ -44,7 +44,7 @@ The template currently uses the Per-Camera Resolution addon. Keep each camera's 
 
 The runner renders frames per camera. In `combined` export mode, portrait frames are centered with side padding inside one final MP4 canvas. In `native_segments` export mode, each camera cut becomes its own MP4 at the camera's native aspect ratio, which is better for downstream editing and FFmpeg stitching.
 
-With the current demo template settings, the native segment sample writes `1920x1080` landscape clips and a `900x1328` portrait clip. These dimensions come from the template camera resolution settings plus `camera_resolution_scale`.
+With the current demo template settings, the preview native segment sample writes `1920x1080` landscape clips and a `900x1328` portrait clip. The production profile doubles those camera settings and writes about `3840x2160` landscape clips and a `1800x2656` portrait clip. These dimensions come from the template camera resolution settings plus `camera_resolution_scale`.
 
 ## Face Objects
 

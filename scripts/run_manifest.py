@@ -322,6 +322,7 @@ def manifest_data(
         "mouth_cue_path": str(mouth_path),
         "mouth_cue_file_hash": sha256_file(mouth_path),
         "mouth_cue_duration": analysis["mouth_duration"],
+        "render_profile": job.get("render_profile"),
         "render_fps": analysis["fps"],
         "expected_frame_count": analysis["expected_frame_count"],
         "actual_rendered_frame_count": analysis["actual_frame_count"],

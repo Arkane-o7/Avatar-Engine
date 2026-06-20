@@ -16,4 +16,21 @@ render:
   engine: BLENDER_EEVEE_NEXT
   placeholder_frame_count: 90
 
+render_profiles:
+  preview:
+    fps: 12
+    resolution: [960, 540]
+    render_quality: draft
+    render_samples: 4
+    disable_shadows: true
+    camera_resolution_scale: 1.0
+    export_mode: combined
+    use_per_camera_resolution: true
+  production:
+    fps: 24
+    resolution: [1920, 1080]
+    camera_resolution_scale: 2.0
+    export_mode: native_segments
+    use_per_camera_resolution: true
+
 test_mode: false

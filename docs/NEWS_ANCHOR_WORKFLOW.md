@@ -55,8 +55,6 @@ Required fields:
 - `script`: spoken anchor copy.
 - `character`: character asset id, currently `avatar_01`.
 - `face_mode`: usually `"2d"`.
-- `fps`: render/export framerate.
-- `resolution`: final MP4 canvas size.
 - `camera_cuts`: semantic camera sequence.
 - `output_path`: final MP4 path.
 
@@ -65,6 +63,9 @@ Common optional fields:
 - `voice`: overrides TTS defaults.
 - `performance_beats`: placeholder gestures and expression presets.
 - `gestures`: Blender Action gestures if the template contains matching Actions.
+- `render_profile`: `"preview"` or `"production"`.
+- `fps`: render/export framerate; usually provided by `render_profile`.
+- `resolution`: final MP4 canvas size; usually provided by `render_profile`.
 - `render_quality`: set to `"draft"` for quick previews.
 - `render_samples`: lower samples for draft mode.
 - `disable_shadows`: use only for throwaway previews.
@@ -120,6 +121,33 @@ assets/output/news_anchor_native_segments/
 
 The segment `edit_manifest.json` records the camera name, time range, frame range, clip duration, source resolution, and clip path. Downstream tools should consume this folder instead of a black-barred combined preview.
 
+## Render Profiles
+
+Render profiles live in `config/default.yaml` and are merged into the job before validation, stale checks, TTS, Blender rendering, and FFmpeg export.
+
+Use `preview` for fast human checks:
+
+```json
+"render_profile": "preview"
+```
+
+The preview profile uses draft render settings and `combined` MP4 export.
+
+Use `production` for the automated news backend:
+
+```json
+"render_profile": "production",
+"segment_output_dir": "assets/output/<job_id>"
+```
+
+The production profile uses native camera segment export by default. Jobs can still override individual profile fields, but the normal production path should keep `native_segments` so portrait and landscape camera views remain separate for editing.
+
+The runner writes the merged job to:
+
+```text
+assets/temp/<job_id>/effective_job.json
+```
+
 ## Demo Jobs
 
 The combined preview demo is for quick human review:
@@ -157,20 +185,13 @@ The expected demo dimensions are `1920x1080` for landscape clips and `900x1328` 
 Preview jobs should optimize for speed:
 
 ```json
-"fps": 12,
-"resolution": [960, 540],
-"render_quality": "draft",
-"render_samples": 4,
-"disable_shadows": true,
-"camera_resolution_scale": 1.0
+"render_profile": "preview"
 ```
 
-Final jobs should optimize for image quality:
+Production jobs should optimize for image quality and downstream editing:
 
 ```json
-"fps": 24,
-"resolution": [1920, 1080],
-"camera_resolution_scale": 2.0
+"render_profile": "production"
 ```
 
 Do not use `disable_shadows` for final news segments. It makes previews fast, but it removes depth and newsroom lighting.
@@ -191,7 +212,7 @@ assets/temp/<job_id>/run_manifest.json
 
 The manifest records hashes, durations, frame counts, stale status, render paths, output paths, and the Blender template mtime.
 
-For `native_segments` jobs, the manifest records the segment folder and all exported clip artifacts.
+For `native_segments` jobs, the manifest records the render profile, segment folder, and all exported clip artifacts.
 
 ## Safety Rules
 
