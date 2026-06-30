@@ -437,11 +437,10 @@ function applyCc4JawMotion(
     tongueMotion.z,
   );
 
-  // Keep the upper row visible without pushing it into rabbit-teeth territory.
-  // Dental morphs are already softened above, so the upper row only needs a
-  // very small downward follow-through rather than a strong tuck or drop.
-  applyBoneWorldTranslation(rig, "CC_Base_UpperJaw", 0, -open * 0.0005, 0);
-  applyBoneWorldTranslation(rig, "CC_Base_Teeth01", 0, -open * 0.0007, 0);
+  // Keep the upper row visible while reducing the original downward drift.
+  // Avoid a constant upward bias; that tucks the teeth behind the upper lip at rest.
+  applyBoneWorldTranslation(rig, "CC_Base_UpperJaw", 0, -open * 0.00015, 0);
+  applyBoneWorldTranslation(rig, "CC_Base_Teeth01", 0, -open * 0.00035, 0);
 }
 
 function currentVisemeAt(
