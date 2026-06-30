@@ -5,7 +5,7 @@ tools:
 
 tts:
   engine: kokoro
-  voice: af_heart
+  voice: af_bella
   speed: 1.0
   sample_rate: 24000
   lang_code: a
@@ -34,3 +34,20 @@ render_profiles:
     use_per_camera_resolution: true
 
 test_mode: false
+
+# Browser renderer settings. The active SynthPost CC4 runtime is selected with
+# renderer="rocketbox" for compatibility, even though it now uses a custom
+# Three.js/Reallusion driver rather than Rocketbox assets.
+# Set AVATAR_ENGINE_ALLOW_RENDERER_FALLBACK=1 to allow Blender fallback on failure.
+# Set AVATAR_ENGINE_ALLOW_2D_FACE_FALLBACK=1 to allow legacy 2D face mode.
+talkinghead:
+  # The web_avatar_runtime is built automatically if dist/ is missing.
+  # Set to false to disable auto-build (requires manual: cd web_avatar_runtime && npm ci && npm run build)
+  auto_build_runtime: true
+  # Browser capture timeout padding beyond clip duration (seconds)
+  browser_timeout_padding_s: 90
+  # Playwright browser to use: chromium, firefox, or webkit
+  playwright_browser: chromium
+  # Avatar asset base path (relative to repo root)
+  default_avatar_asset: assets/avatars/synthpost_anchor_v1/anchor.glb
+  default_avatar_metadata: assets/avatars/synthpost_anchor_v1/avatar.json
