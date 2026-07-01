@@ -6,7 +6,7 @@ tools:
 tts:
   engine: kokoro
   voice: af_bella
-  speed: 1.0
+  speed: 1.10
   sample_rate: 24000
   lang_code: a
 
@@ -23,13 +23,18 @@ render_profiles:
     render_quality: draft
     render_samples: 4
     disable_shadows: true
-    camera_resolution_scale: 1.0
+    camera_resolution_scale: 0.5
     export_mode: combined
     use_per_camera_resolution: true
   production:
     fps: 24
     resolution: [1920, 1080]
-    camera_resolution_scale: 2.0
+    render_quality: fast
+    render_samples: 8
+    camera_resolution_scale: 1.0
+    camera_resolution_overrides:
+      portrait_main:
+        scale: 0.5
     export_mode: native_segments
     use_per_camera_resolution: true
 
@@ -51,3 +56,23 @@ talkinghead:
   # Avatar asset base path (relative to repo root)
   default_avatar_asset: assets/avatars/synthpost_anchor_v1/anchor.glb
   default_avatar_metadata: assets/avatars/synthpost_anchor_v1/avatar.json
+  default_avatar_body_form: F
+
+  # Defaults applied to browser/CC4 jobs when the job JSON omits the field.
+  # Jobs can still override any of these values explicitly.
+  default_camera:
+    name: front_close
+  default_camera_overrides:
+    distance_multiplier: 3.0
+    target_height_factor: 0.85
+    height_factor: 0.87
+  default_render_background: charcoal
+  default_animation:
+    idle_loop: procedural_anchor
+    gesture_events: []
+  default_face:
+    mode: 3d_viseme
+    viseme_source: rhubarb
+    blendshape_profile: reallusion_viseme
+    fallback_mode: legacy_2d
+    allow_fallback: false

@@ -63,7 +63,11 @@ from avatar_engine.viseme_mapping import (
 # --------------------------------------------------------------------------- #
 
 # Extra time added to clip duration when waiting for the browser (seconds).
-BROWSER_TIMEOUT_PADDING_S = 90
+# Longform CC4/GLB renders can spend significant time loading and capturing frames,
+# so allow callers to raise the timeout without editing code.
+BROWSER_TIMEOUT_PADDING_S = int(
+    os.environ.get("AVATAR_ENGINE_BROWSER_TIMEOUT_PADDING_S", "90")
+)
 
 # Green-screen background colour used for chroma keying.
 CHROMA_GREEN = "0x00ff00"
